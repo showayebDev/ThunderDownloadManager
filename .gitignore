@@ -1,0 +1,126 @@
+# ==========================================
+# ThunderDM (Wails v3 + Go + React) .gitignore
+# ==========================================
+
+# ------------------------------------------
+# Binaries & Compiled Executables
+# ------------------------------------------
+bin/
+build/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.syso
+wails_windows_*.syso
+
+# ------------------------------------------
+# Task Runner & Build Tools
+# ------------------------------------------
+.task/
+.wails/
+
+# ------------------------------------------
+# Go Build Artifacts
+# ------------------------------------------
+*.test
+*.out
+cover.out
+pprof/
+
+# ------------------------------------------
+# Frontend (Node / Bun / Vite / React)
+# ------------------------------------------
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun.log*
+
+# ------------------------------------------
+# Platform-Specific Build Outputs
+# ------------------------------------------
+# Windows / NSIS / MSIX
+build/windows/nsis/*-installer.exe
+build/windows/nsis/*.manifest.res
+build/windows/msix/*.msix
+
+# macOS / Darwin
+build/darwin/DerivedData/
+*.dmg
+*.app/
+
+# iOS
+build/ios/DerivedData/
+build/ios/xcode/*.xcodeproj/xcuserdata/
+build/ios/xcode/*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Android
+build/android/.gradle/
+build/android/local.properties
+build/android/app/build/
+build/android/build/
+*.apk
+*.aab
+
+# Linux
+build/linux/appimage/*.AppImage
+build/linux/nfpm/dist/
+*.deb
+*.rpm
+
+# ------------------------------------------
+# Environment Variables & Secrets
+# ------------------------------------------
+.env
+.env.local
+.env.*.local
+*.pfx
+*.pem
+*.cer
+*.crt
+*.key
+
+# ------------------------------------------
+# IDE & Editor Configs
+# ------------------------------------------
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+extension/dist
+
+# ------------------------------------------
+# Operating System Files
+# ------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ------------------------------------------
+# Temporary & Log Files
+# ------------------------------------------
+*.tmp
+*.temp
+*.log
+tmp/
+temp/
+frontend/bindings
+frontend/src/data

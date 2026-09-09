@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="ThunderDownloadManager.exe"
+        Arguments=""
+        InstallLocation="C:\Program Files\Thunder Download Manager">
+    </Installer>
+    <PackageInformation
+        PackageName="ThunderDM"
+        PackageDisplayName="Thunder Download Manager"
+        PublisherName="CN=Thunder Download Manager"
+        PublisherDisplayName="Thunder Download Manager"
+        Version="1.0.0.0"
+        PackageDescription="High performance download manager">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="com.thunderdm.thunderdm"
+                Description="High performance download manager"
+                DisplayName="Thunder Download Manager"
+                ExecutableName="ThunderDownloadManager.exe"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="1.0.0.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>Thunder Download Manager</DisplayName>
+            <PublisherDisplayName>Thunder Download Manager</PublisherDisplayName>
+            <Description>High performance download manager</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="new_setup.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>
