@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thunder Download Manager</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header bar -->
+    <header class="header">
+      <div class="logo-area">
+        <img src="icons/icon32.png" class="logo-img" alt="ThunderDM" />
+        <div class="logo-title">
+          <h1>ThunderDM</h1>
+          <span class="version-tag">v1.0.0</span>
+        </div>
+      </div>
+      <a href="https://github.com/showayebDev/ThunderDownloadManager/releases/latest" target="_blank" rel="noopener noreferrer" id="btn-download-app" class="btn-download-app" title="Download ThunderDM Desktop App">
+        <span class="download-icon">📥</span>
+        <span>Download ThunderDM</span>
+      </a>
+    </header>
+
+    <!-- Popup controls -->
+    <main class="main-content">
+      <!-- Active page info -->
+      <div class="card active-tab-card">
+        <div class="card-label">Current Page / Media Link</div>
+        <div class="url-input-container">
+          <input type="text" id="target-url" placeholder="Fetching current URL..." spellcheck="false" />
+          <button id="btn-copy-url" title="Copy URL" class="btn-icon">📋</button>
+        </div>
+        <div id="page-title" class="page-title truncate">Loading page title...</div>
+      </div>
+
+      <!-- Download actions -->
+      <div class="actions-area">
+        <!-- Media stream download button -->
+        <button id="btn-ytdlp" class="btn btn-ytdlp hidden">
+          <div class="btn-icon-wrapper">🎬</div>
+          <div class="btn-text-content">
+            <span class="btn-title">Download Video / Stream</span>
+            <span class="btn-subtitle">Best Video & Audio Quality</span>
+          </div>
+          <span class="btn-badge">HD+</span>
+        </button>
+
+        <!-- Standard download button -->
+        <button id="btn-thunderdm" class="btn btn-primary">
+          <div class="btn-icon-wrapper">
+            <img src="icons/icon32.png" class="btn-app-icon" alt="ThunderDM" />
+          </div>
+          <div class="btn-text-content">
+            <span class="btn-title">Download with ThunderDM</span>
+            <span class="btn-subtitle">Multi-Thread High Speed</span>
+          </div>
+        </button>
+      </div>
+
+      <!-- Preferences -->
+      <div class="card settings-card">
+        <div class="toggle-row">
+          <span class="toggle-label">Intercept Browser Downloads</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-intercept-downloads" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-group">
+          <div class="toggle-row">
+            <span class="toggle-label">Video Download Badge</span>
+            <select id="select-badge-mode" class="select-badge-mode">
+              <option value="hover">Show on Hover</option>
+              <option value="always">Show Always</option>
+              <option value="never" selected>Never Show</option>
+            </select>
+          </div>
+
+          <!-- Unhover delay control (hover mode only) -->
+          <div id="hover-delay-container" class="sub-setting-row hidden">
+            <div class="sub-setting-header">
+              <span class="sub-setting-label">Unhover Visible Duration</span>
+              <span id="label-hover-delay" class="sub-setting-value">3s</span>
+            </div>
+            <input type="range" id="input-hover-delay" min="1" max="10" step="1" value="3" class="range-slider" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Server configuration -->
+      <div class="card advanced-card">
+        <button type="button" id="btn-toggle-advanced" class="accordion-header">
+          <div class="accordion-title">
+            <span class="accordion-icon">⚙️</span>
+            <span>Advanced Settings</span>
+          </div>
+          <span id="accordion-arrow" class="accordion-arrow">▼</span>
+        </button>
+
+        <div id="advanced-panel" class="advanced-panel hidden">
+          <div class="divider"></div>
+          
+          <div class="advanced-row">
+            <div class="field-label-group">
+              <label for="input-server-port" class="field-label">Server Port</label>
+              <span class="field-hint">ThunderDM connection port</span>
+            </div>
+            <div class="port-input-wrapper">
+              <input type="number" id="input-server-port" class="port-input" min="1024" max="65535" value="37555" />
+            </div>
+          </div>
+
+          <div class="toggle-row" style="margin-top: 4px; margin-bottom: 2px;">
+            <div class="field-label-group">
+              <span class="toggle-label">Pass Browser Cookies</span>
+              <span class="field-hint">Send server & client cookies with download</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-pass-cookies" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="advanced-actions">
+            <button type="button" id="btn-test-connection" class="btn-secondary">
+              <span id="test-btn-text">Test Connection</span>
+            </button>
+          </div>
+          <div id="connection-result" class="connection-result hidden"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Toast notification -->
+    <footer class="footer">
+      <div id="toast" class="toast hidden">Opening in ThunderDM...</div>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

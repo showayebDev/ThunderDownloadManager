@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Thunder Download Manager
+Comment=Thunder Download Manager
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/ThunderDownloadManager %u
+Terminal=false
+Type=Application
+Icon=ThunderDownloadManager
+Categories=Network;FileTransfer;Utility;
+StartupWMClass=ThunderDownloadManager
+
+ 

@@ -1,0 +1,219 @@
+# DO NOT EDIT - Generated automatically by sync_version
+
+!include "x64.nsh"
+!include "WinVer.nsh"
+!include "FileFunc.nsh"
+
+!ifndef INFO_PROJECTNAME
+    !define INFO_PROJECTNAME "ThunderDM"
+!endif
+!ifndef INFO_COMPANYNAME
+    !define INFO_COMPANYNAME ""
+!endif
+!ifndef INFO_PRODUCTNAME
+    !define INFO_PRODUCTNAME "Thunder Download Manager"
+!endif
+!ifndef INFO_PRODUCTVERSION
+    !define INFO_PRODUCTVERSION "1.0.0"
+!endif
+!ifndef INFO_FILEVERSION
+    !define INFO_FILEVERSION "1.0.0.0"
+!endif
+!ifndef INFO_COPYRIGHT
+    !define INFO_COPYRIGHT "© 2026 Thunder Download Manager"
+!endif
+!ifndef PRODUCT_EXECUTABLE
+    !define PRODUCT_EXECUTABLE "ThunderDownloadManager.exe"
+!endif
+!ifndef UNINST_KEY_NAME
+    !define UNINST_KEY_NAME "ThunderDownloadManager"
+!endif
+!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINST_KEY_NAME}"
+
+!ifndef WAILS_INSTALL_SCOPE
+    !define WAILS_INSTALL_SCOPE "machine"
+!endif
+
+!ifndef REQUEST_EXECUTION_LEVEL
+    !if "${WAILS_INSTALL_SCOPE}" == "user"
+        !define REQUEST_EXECUTION_LEVEL "user"
+    !else
+        !define REQUEST_EXECUTION_LEVEL "admin"
+    !endif
+!endif
+
+RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
+
+!ifdef ARG_WAILS_AMD64_BINARY
+    !define SUPPORTS_AMD64
+!endif
+
+!ifdef ARG_WAILS_ARM64_BINARY
+    !define SUPPORTS_ARM64
+!endif
+
+!ifdef SUPPORTS_AMD64
+    !ifdef SUPPORTS_ARM64
+        !define ARCH "amd64_arm64"
+    !else
+        !define ARCH "amd64"
+    !endif
+!else
+    !ifdef SUPPORTS_ARM64
+        !define ARCH "arm64"
+    !else
+        !error "Wails: Undefined ARCH, please provide at least one of ARG_WAILS_AMD64_BINARY or ARG_WAILS_ARM64_BINARY"
+    !endif
+!endif
+
+!macro wails.checkArchitecture
+    !ifndef WAILS_WIN10_REQUIRED
+        !define WAILS_WIN10_REQUIRED "This product is only supported on Windows 10 (Server 2016) and later."
+    !endif
+
+    !ifndef WAILS_ARCHITECTURE_NOT_SUPPORTED
+        !define WAILS_ARCHITECTURE_NOT_SUPPORTED "This product can't be installed on the current Windows architecture. Supports: ${ARCH}"
+    !endif
+
+    ${If} ${AtLeastWin10}
+        !ifdef SUPPORTS_AMD64
+            ${if} ${IsNativeAMD64}
+                Goto ok
+            ${EndIf}
+        !endif
+
+        !ifdef SUPPORTS_ARM64
+            ${if} ${IsNativeARM64}
+                Goto ok
+            ${EndIf}
+        !endif
+
+        IfSilent silentArch notSilentArch
+        silentArch:
+            SetErrorLevel 65
+            Abort
+        notSilentArch:
+            MessageBox MB_OK "${WAILS_ARCHITECTURE_NOT_SUPPORTED}"
+            Quit
+    ${else}
+        IfSilent silentWin notSilentWin
+        silentWin:
+            SetErrorLevel 64
+            Abort
+        notSilentWin:
+            MessageBox MB_OK "${WAILS_WIN10_REQUIRED}"
+            Quit
+    ${EndIf}
+
+    ok:
+!macroend
+
+!macro wails.files
+    !ifdef SUPPORTS_AMD64
+        ${if} ${IsNativeAMD64}
+            File "/oname=${PRODUCT_EXECUTABLE}" "${ARG_WAILS_AMD64_BINARY}"
+        ${EndIf}
+    !endif
+
+    !ifdef SUPPORTS_ARM64
+        ${if} ${IsNativeARM64}
+            File "/oname=${PRODUCT_EXECUTABLE}" "${ARG_WAILS_ARM64_BINARY}"
+        ${EndIf}
+    !endif
+!macroend
+
+!macro wails.writeUninstaller
+    WriteUninstaller "$INSTDIR\uninstall.exe"
+
+    SetRegView 64
+    !if "${WAILS_INSTALL_SCOPE}" == "user"
+        !if "${INFO_COMPANYNAME}" != ""
+            WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
+        !endif
+        WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${INFO_PRODUCTNAME}"
+        WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${INFO_PRODUCTVERSION}"
+        WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+        WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
+
+        ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+        IntFmt $0 "0x%08X" $0
+        WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" "$0"
+    !else
+        !if "${INFO_COMPANYNAME}" != ""
+            WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
+        !endif
+        WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${INFO_PRODUCTNAME}"
+        WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${INFO_PRODUCTVERSION}"
+        WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+        WriteRegStr HKLM "${UNINST_KEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
+
+        ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+        IntFmt $0 "0x%08X" $0
+        WriteRegDWORD HKLM "${UNINST_KEY}" "EstimatedSize" "$0"
+    !endif
+!macroend
+
+!macro wails.deleteUninstaller
+    Delete "$INSTDIR\uninstall.exe"
+
+    SetRegView 64
+    !if "${WAILS_INSTALL_SCOPE}" == "user"
+        DeleteRegKey HKCU "${UNINST_KEY}"
+    !else
+        DeleteRegKey HKLM "${UNINST_KEY}"
+    !endif
+!macroend
+
+!macro wails.setShellContext
+    ${If} ${REQUEST_EXECUTION_LEVEL} == "admin"
+        SetShellVarContext all
+    ${else}
+        SetShellVarContext current
+    ${EndIf}
+!macroend
+
+!macro wails.webview2runtime
+    !ifndef WAILS_INSTALL_WEBVIEW_DETAILPRINT
+        !define WAILS_INSTALL_WEBVIEW_DETAILPRINT "Installing: WebView2 Runtime"
+    !endif
+
+    SetRegView 64
+	ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+    ${If} $0 != ""
+        Goto ok
+    ${EndIf}
+
+    ${If} ${REQUEST_EXECUTION_LEVEL} == "user"
+	    ReadRegStr $0 HKCU "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+        ${If} $0 != ""
+            Goto ok
+        ${EndIf}
+     ${EndIf}
+    
+	SetDetailsPrint both
+    DetailPrint "${WAILS_INSTALL_WEBVIEW_DETAILPRINT}"
+    SetDetailsPrint listonly
+    
+    InitPluginsDir
+    CreateDirectory "$pluginsdir\webview2bootstrapper"
+    SetOutPath "$pluginsdir\webview2bootstrapper"
+    File "MicrosoftEdgeWebview2Setup.exe"
+    ExecWait '"$pluginsdir\webview2bootstrapper\MicrosoftEdgeWebview2Setup.exe" /silent /install'
+    
+    SetDetailsPrint both
+    ok:
+!macroend
+
+!macro wails.associateFiles
+!macroend
+
+!macro wails.unassociateFiles
+!macroend
+
+!macro wails.associateCustomProtocols
+!macroend
+
+!macro wails.unassociateCustomProtocols
+!macroend
