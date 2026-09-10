@@ -53,7 +53,8 @@ import {
 import { Progress } from '../ui/progress';
 import { Badge } from '../ui/badge';
 
-let hasCheckedStartupAppUpdate = false;
+let startupAppUpdatePromise: Promise<any> | null = null;
+let startupToolsPromise: Promise<any> | null = null;
 
 export const Header: React.FC = () => {
   const {
@@ -245,6 +246,21 @@ export const Header: React.FC = () => {
     }
   };
 
+  const formatUpdateError = (err: any): string => {
+    const msg = typeof err === 'string' ? err : err?.message || err?.error || '';
+    if (!msg) return 'Could not verify updates at this moment. Please check your internet connection.';
+    if (msg.includes('rate limit exceeded') || msg.includes('api 403') || msg.includes('API rate limit')) {
+      return 'GitHub API rate limit exceeded for your network. Please wait a few minutes and try again.';
+    }
+    if (msg.includes('dial tcp') || msg.includes('connection refused') || msg.includes('no internet') || msg.includes('network is unreachable')) {
+      return 'Could not connect to update servers. Please check your internet connection and try again.';
+    }
+    if (msg.includes('all providers failed')) {
+      return 'Unable to retrieve release information from GitHub. Please try again shortly.';
+    }
+    return msg;
+  };
+
   const handleCheckMediaToolsUpdate = async () => {
     setYtdlpModal({
       open: true,
@@ -306,61 +322,61 @@ export const Header: React.FC = () => {
         });
       }
     } catch (err: any) {
+      const friendly = formatUpdateError(err);
       setYtdlpModal({
         open: true,
         title: 'Update Check Error',
-        message: err?.message || 'Could not verify or update media tools.',
+        message: friendly,
         loading: false,
         success: false,
       });
     }
   };
 
-  const runBackgroundMediaToolsUpdate = async () => {
-    try {
-      const res: any = await invoke('check_ytdlp_update');
-      if (res?.updated) {
-        const ytdlpVer = res?.currentVersion || res?.ytdlpVersion || '';
-        const ffmpegVer = res?.ffmpegVersion || '';
-        const details = [
-          ytdlpVer ? `YT-DLP: ${ytdlpVer}` : '',
-          ffmpegVer ? `FFmpeg: ${ffmpegVer}` : ''
-        ].filter(Boolean).join(' | ');
+  const runStartupToolsCheckSilently = async () => {
+    if (!startupToolsPromise) {
+      startupToolsPromise = (async () => {
+        try {
+          const mediaCheck: any = await invoke('check_ytdlp');
+          const allInstalled = Boolean(mediaCheck?.allInstalled ?? (mediaCheck?.installed && mediaCheck?.ffmpegInstalled));
+          if (!allInstalled) {
+            console.warn('[ThunderDM Startup] ⚠️ Portable media tools (YT-DLP & FFmpeg) not installed.');
+            return { needsSetup: true, mediaCheck };
+          }
 
-        setYtdlpModal({
-          open: true,
-          title: 'Media Tools Updated',
-          message: `YT-DLP and FFmpeg have been updated to the latest versions in the background${details ? ` (${details})` : ''}.`,
-          loading: false,
-          success: true,
-        });
-      }
-    } catch (e) {
-      console.warn('Background media tools update check silent error:', e);
+          // If already installed, silently check for updates in the background
+          const res: any = await invoke('check_ytdlp_update');
+          const ytdlpVer = res?.currentVersion || res?.ytdlpVersion || '';
+          const ffmpegVer = res?.ffmpegVersion || '';
+          const details = [
+            ytdlpVer ? `YT-DLP: ${ytdlpVer}` : '',
+            ffmpegVer ? `FFmpeg: ${ffmpegVer}` : ''
+          ].filter(Boolean).join(' | ');
+
+          if (res?.updated) {
+            console.log(`%c[ThunderDM MediaTools]%c 🛠️ Media tools updated successfully: ${details}`, 'color: #10b981; font-weight: bold;', 'color: inherit;');
+          } else {
+            console.log(`%c[ThunderDM MediaTools]%c 🛠️ Media tools ready & verified: ${details || 'OK'}`, 'color: #10b981; font-weight: bold;', 'color: inherit;');
+          }
+          return { needsSetup: false, res };
+        } catch (e) {
+          console.warn('[ThunderDM MediaTools] Startup media tools check silent warning:', e);
+          return { needsSetup: false, error: e };
+        }
+      })();
     }
-  };
 
-  const runAppUpdateCheckSilently = async () => {
-    if (hasCheckedStartupAppUpdate) return;
-    hasCheckedStartupAppUpdate = true;
-    try {
-      const appRes: any = await invoke('check_app_update');
-      if (appRes?.hasUpdate) {
-        setUpdateModal({
-          open: true,
-          stage: 'available',
-          title: 'New Update Available!',
-          message: `A newer version (v${appRes.latestVersion}) of ThunderDM is ready to download.`,
-          currentVersion: appRes.currentVersion || appVersion,
-          latestVersion: appRes.latestVersion,
-          releaseName: appRes.releaseName,
-          releaseNotes: appRes.releaseNotes,
-          publishedAt: appRes.publishedAt,
-          artifactSize: appRes.artifactSize,
-        });
-      }
-    } catch {
-      // Completely silent on startup check error
+    const toolsRes = await startupToolsPromise;
+    if (toolsRes?.needsSetup) {
+      setYtdlpModal({
+        open: true,
+        title: 'Welcome to ThunderDM - Initial Setup',
+        message: 'ThunderDM requires portable YT-DLP and FFmpeg binaries to download high-speed streams, merge audio/video, and convert media. Please install them to proceed.',
+        loading: false,
+        success: false,
+        canInstall: true,
+        isMandatorySetup: true,
+      });
     }
   };
 
@@ -396,9 +412,6 @@ export const Header: React.FC = () => {
           success: true,
           isMandatorySetup: false,
         });
-        if (wasMandatory) {
-          runAppUpdateCheckSilently();
-        }
       } else if (res?.success) {
         setYtdlpModal({
           open: true,
@@ -408,14 +421,11 @@ export const Header: React.FC = () => {
           success: true,
           isMandatorySetup: false,
         });
-        if (wasMandatory) {
-          runAppUpdateCheckSilently();
-        }
       } else {
         setYtdlpModal({
           open: true,
           title: 'Installation Notice',
-          message: res?.error || 'Could not complete installation. Please check your internet connection.',
+          message: formatUpdateError(res?.error),
           loading: false,
           success: false,
           canInstall: true,
@@ -426,7 +436,7 @@ export const Header: React.FC = () => {
       setYtdlpModal({
         open: true,
         title: 'Installation Error',
-        message: err?.message || 'Failed to install media tools.',
+        message: formatUpdateError(err),
         loading: false,
         success: false,
         canInstall: true,
@@ -446,49 +456,58 @@ export const Header: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
     async function loadVersionAndStartupSequence() {
+      let currentLoadedVersion = appVersion;
       try {
         const v = await invoke<string>('get_app_version');
-        if (v && isMounted) setAppVersion(v);
+        if (v) {
+          currentLoadedVersion = v;
+          if (isMounted) setAppVersion(v);
+        }
       } catch {}
 
-      try {
-        const mediaCheck: any = await invoke('check_ytdlp');
-        const allInstalled = Boolean(mediaCheck?.allInstalled ?? (mediaCheck?.installed && mediaCheck?.ffmpegInstalled));
-        if (!allInstalled) {
-          if (isMounted) {
-            setYtdlpModal({
-              open: true,
-              title: 'Welcome to ThunderDM - Initial Setup',
-              message: 'ThunderDM requires portable YT-DLP and FFmpeg binaries to download high-speed streams, merge audio/video, and convert media. Please install them to proceed.',
-              loading: false,
-              success: false,
-              canInstall: true,
-              isMandatorySetup: true,
-            });
-          }
-          return;
-        }
+      if (!startupAppUpdatePromise) {
+        console.log('%c[ThunderDM Startup]%c 🚀 App initialized (v' + currentLoadedVersion + '). Checking updates & media tools in background...', 'color: #3b82f6; font-weight: bold;', 'color: inherit;');
+        startupAppUpdatePromise = invoke('check_app_update').catch((e) => {
+          return { success: false, hasUpdate: false, error: e };
+        });
+      }
 
-        if (!hasCheckedStartupAppUpdate) {
-          hasCheckedStartupAppUpdate = true;
-          const appRes: any = await invoke('check_app_update');
-          if (appRes?.hasUpdate && isMounted) {
-            setUpdateModal({
-              open: true,
-              stage: 'available',
-              title: 'New Update Available!',
-              message: `A newer version (v${appRes.latestVersion}) of ThunderDM is ready to download.`,
-              currentVersion: appRes.currentVersion || '1.0.0-beta',
-              latestVersion: appRes.latestVersion,
-              releaseName: appRes.releaseName,
-              releaseNotes: appRes.releaseNotes,
-              publishedAt: appRes.publishedAt,
-              artifactSize: appRes.artifactSize,
-            });
-          }
-        }
-      } catch {
-        // Completely silent on startup check error
+      const appRes: any = await startupAppUpdatePromise;
+      if (!isMounted) return;
+
+      if (appRes?.hasUpdate) {
+        console.log(`%c[ThunderDM Updater]%c 🚀 New update found! Latest: v${appRes.latestVersion} (Current: v${appRes.currentVersion || currentLoadedVersion})`, 'color: #3b82f6; font-weight: bold;', 'color: inherit;');
+        setUpdateModal({
+          open: true,
+          stage: 'available',
+          title: 'New Update Available!',
+          message: `A newer version (v${appRes.latestVersion}) of ThunderDM is ready to download.`,
+          currentVersion: appRes.currentVersion || currentLoadedVersion,
+          latestVersion: appRes.latestVersion,
+          releaseName: appRes.releaseName,
+          releaseNotes: appRes.releaseNotes,
+          publishedAt: appRes.publishedAt,
+          artifactSize: appRes.artifactSize,
+        });
+        // Stop here! Defer media tools check until user installs or dismisses the app update
+        return;
+      } else if (appRes?.success) {
+        console.log(
+          `%c[ThunderDM Updater]%c ✅ App is up to date (v${appRes.currentVersion || currentLoadedVersion}).`,
+          'color: #10b981; font-weight: bold;',
+          'color: inherit;'
+        );
+      } else {
+        console.log(
+          `%c[ThunderDM Updater]%c ℹ️ Startup check status: ${formatUpdateError(appRes?.error)}`,
+          'color: #64748b;',
+          'color: inherit;'
+        );
+      }
+
+      // 2. Only if NO main app update is found (or check failed silently), check and update media tools (YT-DLP & FFmpeg)
+      if (isMounted) {
+        runStartupToolsCheckSilently();
       }
     }
     loadVersionAndStartupSequence();
@@ -499,17 +518,17 @@ export const Header: React.FC = () => {
 
   useEffect(() => {
     const unsubProgress = Events.On('wails:updater:progress', (e: any) => {
-      const p = e?.data?.percent || 0;
-      const dl = e?.data?.downloaded || 0;
-      const total = e?.data?.total || 0;
+      const p = Math.min(100, Math.max(0, Number(e?.data?.percent || 0)));
+      const dl = Number(e?.data?.downloaded || 0);
+      const total = Number(e?.data?.total || 0);
       setUpdateModal((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
           stage: 'downloading',
           progressPercent: p,
-          downloadedBytes: dl,
-          totalBytes: total,
+          downloadedBytes: dl > 0 ? dl : prev.downloadedBytes,
+          totalBytes: total > 0 ? total : prev.totalBytes,
           message: `Downloading ThunderDM update (${p}%)...`,
         };
       });
@@ -530,12 +549,13 @@ export const Header: React.FC = () => {
     const unsubError = Events.On('wails:updater:error', (e: any) => {
       setUpdateModal((prev) => {
         if (!prev) return prev;
+        const friendly = formatUpdateError(e?.data?.message);
         return {
           ...prev,
           stage: 'error',
           title: 'Update Failed',
-          message: e?.data?.message || 'An error occurred during update.',
-          error: e?.data?.message,
+          message: friendly,
+          error: friendly,
         };
       });
     });
@@ -603,21 +623,23 @@ export const Header: React.FC = () => {
           currentVersion: res.currentVersion || appVersion,
         });
       } else {
+        const friendlyError = formatUpdateError(res?.error);
         setUpdateModal({
           open: true,
           stage: 'error',
           title: 'Update Check Notice',
-          message: res?.error || 'Could not verify updates at this moment.',
-          error: res?.error,
+          message: friendlyError,
+          error: friendlyError,
         });
       }
     } catch (err: any) {
+      const friendlyError = formatUpdateError(err);
       setUpdateModal({
         open: true,
         stage: 'error',
         title: 'Update Check Failed',
-        message: err?.message || 'Failed to communicate with update server.',
-        error: err?.message,
+        message: friendlyError,
+        error: friendlyError,
       });
     }
   };
@@ -631,27 +653,13 @@ export const Header: React.FC = () => {
       stage: 'downloading',
       title: 'Downloading Update...',
       message: `Downloading ThunderDM v${prev.latestVersion}...`,
-      progressPercent: 5,
-      downloadedBytes: total ? Math.floor(total * 0.05) : 0,
+      progressPercent: 0,
+      downloadedBytes: 0,
       totalBytes: total,
     } : null);
 
-    let currentPct = 5;
-    const interval = setInterval(() => {
-      currentPct += Math.floor(Math.random() * 8) + 4;
-      if (currentPct > 92) currentPct = 92;
-      setUpdateModal((prev) => (prev && prev.stage === 'downloading' ? {
-        ...prev,
-        progressPercent: currentPct,
-        downloadedBytes: total ? Math.floor((total * currentPct) / 100) : 0,
-        totalBytes: total,
-      } : prev));
-    }, 250);
-
     try {
       const res: any = await invoke('install_app_update');
-      clearInterval(interval);
-
       if (res?.success) {
         setUpdateModal((prev) => prev ? {
           ...prev,
@@ -659,24 +667,27 @@ export const Header: React.FC = () => {
           title: 'Update Ready to Install',
           message: `ThunderDM v${prev.latestVersion} has been downloaded successfully. Click "Restart & Apply Update" to install and launch the new version.`,
           progressPercent: 100,
-          downloadedBytes: total,
-          totalBytes: total,
+          downloadedBytes: prev.totalBytes || total,
+          totalBytes: prev.totalBytes || total,
         } : null);
       } else {
+        const friendly = formatUpdateError(res?.error);
         setUpdateModal((prev) => prev ? {
           ...prev,
           stage: 'error',
           title: 'Download Failed',
-          message: res?.error || 'Failed to download update package. Please try again.',
+          message: friendly,
+          error: friendly,
         } : null);
       }
     } catch (err: any) {
-      clearInterval(interval);
+      const friendly = formatUpdateError(err);
       setUpdateModal((prev) => prev ? {
         ...prev,
         stage: 'error',
         title: 'Download Error',
-        message: err?.message || 'Failed to download update package.',
+        message: friendly,
+        error: friendly,
       } : null);
     }
   };
@@ -699,7 +710,7 @@ export const Header: React.FC = () => {
         }
         if (updateModal?.open && updateModal.stage !== 'checking' && updateModal.stage !== 'downloading') {
           setUpdateModal(null);
-          runBackgroundMediaToolsUpdate();
+          runStartupToolsCheckSilently();
         }
         return;
       }
@@ -1058,7 +1069,7 @@ export const Header: React.FC = () => {
             setYtdlpModal(null);
           }
         }}>
-          <DialogContent className="max-w-[420px] p-6 text-center space-y-4">
+          <DialogContent className="max-w-[440px] p-6 space-y-4">
             <div className="flex flex-col items-center text-center space-y-3">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
                 ytdlpModal.loading 
@@ -1077,8 +1088,8 @@ export const Header: React.FC = () => {
               </div>
 
               <DialogHeader>
-                <DialogTitle className="text-center text-base">{ytdlpModal.title}</DialogTitle>
-                <DialogDescription className="text-center text-xs leading-relaxed">
+                <DialogTitle className="text-center text-base font-semibold">{ytdlpModal.title}</DialogTitle>
+                <DialogDescription className="text-center text-xs text-muted-foreground leading-relaxed break-words px-2">
                   {ytdlpModal.message}
                 </DialogDescription>
               </DialogHeader>
@@ -1105,7 +1116,7 @@ export const Header: React.FC = () => {
                 <Button
                   disabled={ytdlpModal.loading}
                   onClick={handleInstallYTDLP}
-                  className="w-full"
+                  className="w-full h-9 rounded-lg font-medium"
                 >
                   {ytdlpModal.loading ? 'Installing...' : 'Install Media Tools Now'}
                 </Button>
@@ -1115,7 +1126,7 @@ export const Header: React.FC = () => {
                   disabled={ytdlpModal.loading}
                   variant={ytdlpModal.canInstall ? 'outline' : 'default'}
                   onClick={() => setYtdlpModal(null)}
-                  className="w-full"
+                  className="w-full h-9 rounded-lg font-medium"
                 >
                   {ytdlpModal.loading ? 'Working...' : ytdlpModal.success ? 'Get Started' : 'OK'}
                 </Button>
@@ -1130,10 +1141,10 @@ export const Header: React.FC = () => {
         <Dialog open={updateModal.open} onOpenChange={(open) => {
           if (!open && updateModal.stage !== 'checking' && updateModal.stage !== 'downloading') {
             setUpdateModal(null);
-            runBackgroundMediaToolsUpdate();
+            runStartupToolsCheckSilently();
           }
         }}>
-          <DialogContent className="max-w-[440px] p-6 space-y-4">
+          <DialogContent className="max-w-[480px] p-6 space-y-4">
             <div className="flex flex-col items-center text-center space-y-3">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
                 updateModal.stage === 'checking' || updateModal.stage === 'downloading'
@@ -1141,57 +1152,57 @@ export const Header: React.FC = () => {
                   : updateModal.stage === 'uptodate' || updateModal.stage === 'ready'
                   ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
                   : updateModal.stage === 'available'
-                  ? 'bg-primary/20 p-2 border border-primary/30 shadow-md'
-                  : 'bg-destructive/20 text-destructive border border-destructive/30'
+                  ? 'bg-primary/10 p-2.5 border border-primary/20 shadow-sm'
+                  : 'bg-destructive/15 text-destructive border border-destructive/25'
               }`}>
                 {updateModal.stage === 'checking' || updateModal.stage === 'downloading' ? (
                   <Loader2 className="w-6 h-6 animate-spin" />
                 ) : updateModal.stage === 'uptodate' || updateModal.stage === 'ready' ? (
                   <CheckCircle2 className="w-6 h-6" />
                 ) : updateModal.stage === 'available' ? (
-                  <img src="/icon.svg" alt="Logo" className="w-8 h-8 rounded-lg object-contain" />
+                  <img src="/icon.svg" alt="Logo" className="w-7 h-7 rounded-lg object-contain" />
                 ) : (
                   <AlertCircle className="w-6 h-6" />
                 )}
               </div>
 
               <DialogHeader>
-                <DialogTitle className="text-center text-base">{updateModal.title}</DialogTitle>
-                <DialogDescription className="text-center text-xs leading-relaxed">
+                <DialogTitle className="text-center text-base font-semibold">{updateModal.title}</DialogTitle>
+                <DialogDescription className="text-center text-xs text-muted-foreground leading-relaxed break-words px-2">
                   {updateModal.message}
                 </DialogDescription>
               </DialogHeader>
             </div>
 
             {updateModal.stage === 'available' && (
-              <div className="bg-muted/50 border border-border rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="bg-muted/40 border border-border/80 rounded-xl p-3.5 space-y-2.5 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground text-[11px]">Current Version:</span>
                   <span className="font-mono font-medium">v{updateModal.currentVersion}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground text-[11px]">Latest Version:</span>
-                  <Badge variant="outline" className="text-emerald-500 border-emerald-500/30 bg-emerald-500/10 font-mono">
+                  <Badge variant="outline" className="text-emerald-500 border-emerald-500/30 bg-emerald-500/10 font-mono text-[11px]">
                     v{updateModal.latestVersion}
                   </Badge>
                 </div>
                 {updateModal.artifactSize && updateModal.artifactSize > 0 ? (
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-[11px]">Download Size:</span>
-                    <span className="font-mono">{formatBytes(updateModal.artifactSize)}</span>
+                    <span className="font-mono font-medium">{formatBytes(updateModal.artifactSize)}</span>
                   </div>
                 ) : null}
                 {updateModal.releaseNotes && (
-                  <div className="pt-2 border-t border-border space-y-1.5">
+                  <div className="pt-2 border-t border-border/70 space-y-1.5 text-left">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold">Release Notes:</span>
+                      <span className="text-[11px] font-semibold text-foreground">Release Notes:</span>
                       {updateModal.publishedAt && (
                         <span className="text-[10px] text-muted-foreground font-mono">
                           {new Date(updateModal.publishedAt).toLocaleDateString()}
                         </span>
                       )}
                     </div>
-                    <div className="max-h-36 overflow-y-auto bg-background/80 p-2.5 rounded-lg border border-border text-foreground font-sans text-xs">
+                    <div className="max-h-48 overflow-y-auto custom-scrollbar bg-background/90 p-3 rounded-lg border border-border/80 text-foreground font-sans text-xs leading-relaxed select-text">
                       <MarkdownRenderer content={updateModal.releaseNotes} />
                     </div>
                   </div>
@@ -1220,13 +1231,13 @@ export const Header: React.FC = () => {
                     variant="outline"
                     onClick={() => {
                       setUpdateModal(null);
-                      runBackgroundMediaToolsUpdate();
+                      runStartupToolsCheckSilently();
                     }}
-                    className="flex-1"
+                    className="flex-1 h-9 rounded-lg font-medium"
                   >
                     Later
                   </Button>
-                  <Button onClick={handleStartAppUpdate} className="flex-1">
+                  <Button onClick={handleStartAppUpdate} className="flex-1 h-9 rounded-lg font-medium bg-primary hover:bg-primary/90 text-primary-foreground">
                     Update Now
                   </Button>
                 </>
@@ -1238,13 +1249,13 @@ export const Header: React.FC = () => {
                     variant="outline"
                     onClick={() => {
                       setUpdateModal(null);
-                      runBackgroundMediaToolsUpdate();
+                      runStartupToolsCheckSilently();
                     }}
-                    className="flex-1"
+                    className="flex-1 h-9 rounded-lg font-medium"
                   >
                     Later
                   </Button>
-                  <Button onClick={handleRestartAppForUpdate} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white">
+                  <Button onClick={handleRestartAppForUpdate} className="flex-1 h-9 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-500 text-white">
                     Restart & Apply Update
                   </Button>
                 </>
@@ -1254,16 +1265,16 @@ export const Header: React.FC = () => {
                 <Button
                   onClick={() => {
                     setUpdateModal(null);
-                    runBackgroundMediaToolsUpdate();
+                    runStartupToolsCheckSilently();
                   }}
-                  className="w-full"
+                  className="w-full h-9 rounded-lg font-medium"
                 >
                   OK
                 </Button>
               )}
 
               {(updateModal.stage === 'checking' || updateModal.stage === 'downloading') && (
-                <Button disabled className="w-full opacity-80">
+                <Button disabled className="w-full h-9 rounded-lg opacity-80">
                   Please wait...
                 </Button>
               )}
