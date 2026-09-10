@@ -25,6 +25,26 @@ on:
         required: false
         type: string
         default: '🚀 Official Multi-Platform Release of Thunder Download Manager.'
+      build_windows:
+        description: 'Windows (Universal .exe)'
+        required: false
+        type: boolean
+        default: true
+      build_macos:
+        description: 'macOS (Universal .dmg & .zip)'
+        required: false
+        type: boolean
+        default: true
+      build_linux:
+        description: 'Linux (.AppImage, .deb, .rpm)'
+        required: false
+        type: boolean
+        default: true
+      build_extensions:
+        description: 'Browser Extensions (.zip & .xpi)'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -35,6 +55,7 @@ jobs:
   # =========================================================================
   build-windows:
     name: Build Windows Package
+    if: ${{ inputs.build_windows != false }}
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -95,6 +116,7 @@ jobs:
   # =========================================================================
   build-macos:
     name: Build macOS Package
+    if: ${{ inputs.build_macos != false }}
     runs-on: macos-latest
     steps:
       - name: Checkout repository
@@ -162,6 +184,7 @@ jobs:
   # =========================================================================
   build-linux:
     name: Build Linux Packages
+    if: ${{ inputs.build_linux != false }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -253,6 +276,7 @@ jobs:
   # =========================================================================
   build-extensions:
     name: Build Browser Extensions
+    if: ${{ inputs.build_extensions != false }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -297,10 +321,15 @@ jobs:
   publish-release:
     name: Create Draft GitHub Release
     needs: [build-windows, build-macos, build-linux, build-extensions]
+    if: ${{ always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
     steps:
+      - name: Create release directory
+        run: mkdir -p release-artifacts scan-results
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: release-artifacts
           merge-multiple: true
