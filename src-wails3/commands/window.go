@@ -24,9 +24,10 @@ var (
 	hiddenDownloadsMu   sync.RWMutex
 	hiddenDownloads     = make(map[string]*HiddenRealtimeDownload)
 	trayMenuItems       = make(map[string]*application.MenuItem)
-	systrayInstance     *application.SystemTray
-	completedPayloadsMu sync.RWMutex
-	completedPayloads   = make(map[string]map[string]interface{})
+	systrayInstance           *application.SystemTray
+	completedPayloadsMu       sync.RWMutex
+	completedPayloads         = make(map[string]map[string]interface{})
+	completedWindowCreationMu sync.Mutex
 )
 
 type WindowCommand struct {
@@ -563,6 +564,9 @@ func (c *WindowCommand) ShowDownloadCompletedWindow(payload map[string]interface
 	completedPayloadsMu.Unlock()
 
 	if c.app != nil {
+		completedWindowCreationMu.Lock()
+		defer completedWindowCreationMu.Unlock()
+
 		windowName := "download-completed-" + taskId
 		urlPath := "/#/download-completed?id=" + taskId
 
