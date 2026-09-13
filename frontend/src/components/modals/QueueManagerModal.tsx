@@ -14,6 +14,7 @@ import {
   Music,
   Image as ImageIcon,
   FileText,
+  Clock,
   X
 } from 'lucide-react';
 import { useDownloadContext } from '../../context/DownloadContext';
@@ -62,6 +63,160 @@ const getCategoryIcon = (category: Category) => {
     default:
       return FileText;
   }
+};
+
+const parseTime = (timeStr?: string) => {
+  if (!timeStr || !timeStr.includes(':')) return { hour: 2, minute: 30 };
+  const parts = timeStr.split(':');
+  return {
+    hour: Math.min(23, Math.max(0, parseInt(parts[0], 10) || 0)),
+    minute: Math.min(59, Math.max(0, parseInt(parts[1], 10) || 0))
+  };
+};
+
+const formatTimeStr = (hour: number, minute: number) => {
+  const h = String(hour).padStart(2, '0');
+  const m = String(minute).padStart(2, '0');
+  return `${h}:${m}`;
+};
+
+interface QueueTimePickerProps {
+  value: string;
+  onChange: (newTime: string) => void;
+}
+
+const QueueTimePicker: React.FC<QueueTimePickerProps> = ({ value, onChange }) => {
+  const { hour, minute } = parseTime(value);
+
+  const handleHourStep = (delta: number) => {
+    const newH = (hour + delta + 24) % 24;
+    onChange(formatTimeStr(newH, minute));
+  };
+
+  const handleMinuteStep = (delta: number) => {
+    const newM = (minute + delta + 60) % 60;
+    onChange(formatTimeStr(hour, newM));
+  };
+
+  const handleHourInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (raw === '') {
+      onChange(formatTimeStr(0, minute));
+      return;
+    }
+    const val = parseInt(raw, 10);
+    if (!isNaN(val)) {
+      const clamped = Math.max(0, Math.min(23, val));
+      onChange(formatTimeStr(clamped, minute));
+    }
+  };
+
+  const handleMinuteInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (raw === '') {
+      onChange(formatTimeStr(hour, 0));
+      return;
+    }
+    const val = parseInt(raw, 10);
+    if (!isNaN(val)) {
+      const clamped = Math.max(0, Math.min(59, val));
+      onChange(formatTimeStr(hour, clamped));
+    }
+  };
+
+  return (
+    <div className="flex items-center space-x-1.5 bg-muted/90 hover:bg-muted border border-border/80 px-2 py-1 rounded-lg text-xs font-mono shadow-xs select-none transition-colors">
+      {/* Hours */}
+      <div className="flex items-center space-x-0.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={2}
+          value={String(hour).padStart(2, '0')}
+          onChange={handleHourInput}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') { e.preventDefault(); handleHourStep(1); }
+            if (e.key === 'ArrowDown') { e.preventDefault(); handleHourStep(-1); }
+          }}
+          className="w-5 text-center font-mono text-xs font-semibold bg-transparent text-foreground outline-none focus:bg-accent/50 rounded py-0.5"
+          title="Hour (00 - 23)"
+        />
+        <div className="flex flex-col -space-y-0.5">
+          <button
+            type="button"
+            onClick={() => handleHourStep(1)}
+            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer rounded hover:bg-accent/60"
+            title="Increment hour"
+          >
+            <ChevronUp className="w-2.5 h-2.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleHourStep(-1)}
+            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer rounded hover:bg-accent/60"
+            title="Decrement hour"
+          >
+            <ChevronDown className="w-2.5 h-2.5" />
+          </button>
+        </div>
+      </div>
+
+      <span className="font-bold text-muted-foreground select-none">:</span>
+
+      {/* Minutes */}
+      <div className="flex items-center space-x-0.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={2}
+          value={String(minute).padStart(2, '0')}
+          onChange={handleMinuteInput}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') { e.preventDefault(); handleMinuteStep(1); }
+            if (e.key === 'ArrowDown') { e.preventDefault(); handleMinuteStep(-1); }
+          }}
+          className="w-5 text-center font-mono text-xs font-semibold bg-transparent text-foreground outline-none focus:bg-accent/50 rounded py-0.5"
+          title="Minute (00 - 59)"
+        />
+        <div className="flex flex-col -space-y-0.5">
+          <button
+            type="button"
+            onClick={() => handleMinuteStep(1)}
+            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer rounded hover:bg-accent/60"
+            title="Increment minute"
+          >
+            <ChevronUp className="w-2.5 h-2.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleMinuteStep(-1)}
+            className="p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer rounded hover:bg-accent/60"
+            title="Decrement minute"
+          >
+            <ChevronDown className="w-2.5 h-2.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Native Clock Picker Quick Trigger */}
+      <div className="relative flex items-center pl-1 border-l border-border/70 ml-0.5">
+        <Clock className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" />
+        <input
+          type="time"
+          value={formatTimeStr(hour, minute)}
+          onChange={(e) => {
+            if (e.target.value) {
+              onChange(e.target.value);
+            }
+          }}
+          className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+          title="Open system time picker"
+        />
+      </div>
+    </div>
+  );
 };
 
 export const QueueManagerModal: React.FC = () => {
@@ -179,27 +334,6 @@ export const QueueManagerModal: React.FC = () => {
     return q === selectedQueue.name.toLowerCase() || q === selectedQueue.id.toLowerCase();
   });
 
-  const parseTime = (timeStr?: string) => {
-    if (!timeStr || !timeStr.includes(':')) return { hour: 2, minute: 30 };
-    const parts = timeStr.split(':');
-    return {
-      hour: Math.min(23, Math.max(0, parseInt(parts[0], 10) || 0)),
-      minute: Math.min(59, Math.max(0, parseInt(parts[1], 10) || 0))
-    };
-  };
-
-  const formatTimeStr = (hour: number, minute: number) => {
-    const h = String(hour).padStart(2, '0');
-    const m = String(minute).padStart(2, '0');
-    return `${h}:${m}`;
-  };
-
-  const handleHourChange = (field: 'autoStartTime' | 'autoStopTime', delta: number) => {
-    const current = parseTime(selectedQueue[field]);
-    let newHour = (current.hour + delta + 24) % 24;
-    handleUpdate({ [field]: formatTimeStr(newHour, current.minute) });
-  };
-
   const toggleDay = (day: string) => {
     const currentDays = selectedQueue.activeDays || [];
     let updated: string[];
@@ -227,9 +361,6 @@ export const QueueManagerModal: React.FC = () => {
     removeItemFromQueue(selectedItemId);
     setSelectedItemId(null);
   };
-
-  const startParsed = parseTime(selectedQueue.autoStartTime || '02:30');
-  const stopParsed = parseTime(selectedQueue.autoStopTime || '07:30');
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && closeModal()}>
@@ -481,19 +612,12 @@ export const QueueManagerModal: React.FC = () => {
                             />
                           </div>
                           {selectedQueue.enableAutoStartTime && (
-                            <div className="flex items-center justify-between pt-1 font-mono text-xs">
-                              <span className="text-muted-foreground">Start at:</span>
-                              <div className="flex items-center space-x-1 bg-muted px-2.5 py-1 rounded-md">
-                                <span>{String(startParsed.hour).padStart(2, '0')}:{String(startParsed.minute).padStart(2, '0')}</span>
-                                <div className="flex items-center space-x-0.5 ml-1.5">
-                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleHourChange('autoStartTime', 1)}>
-                                    <ChevronUp className="w-3 h-3" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleHourChange('autoStartTime', -1)}>
-                                    <ChevronDown className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              </div>
+                            <div className="flex items-center justify-between pt-1 text-xs">
+                              <span className="text-muted-foreground font-medium">Start at:</span>
+                              <QueueTimePicker
+                                value={selectedQueue.autoStartTime || '02:30'}
+                                onChange={(val) => handleUpdate({ autoStartTime: val })}
+                              />
                             </div>
                           )}
                         </div>
@@ -508,19 +632,12 @@ export const QueueManagerModal: React.FC = () => {
                             />
                           </div>
                           {selectedQueue.enableAutoStopTime && (
-                            <div className="flex items-center justify-between pt-1 font-mono text-xs">
-                              <span className="text-muted-foreground">Stop at:</span>
-                              <div className="flex items-center space-x-1 bg-muted px-2.5 py-1 rounded-md">
-                                <span>{String(stopParsed.hour).padStart(2, '0')}:{String(stopParsed.minute).padStart(2, '0')}</span>
-                                <div className="flex items-center space-x-0.5 ml-1.5">
-                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleHourChange('autoStopTime', 1)}>
-                                    <ChevronUp className="w-3 h-3" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleHourChange('autoStopTime', -1)}>
-                                    <ChevronDown className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              </div>
+                            <div className="flex items-center justify-between pt-1 text-xs">
+                              <span className="text-muted-foreground font-medium">Stop at:</span>
+                              <QueueTimePicker
+                                value={selectedQueue.autoStopTime || '07:30'}
+                                onChange={(val) => handleUpdate({ autoStopTime: val })}
+                              />
                             </div>
                           )}
                         </div>
