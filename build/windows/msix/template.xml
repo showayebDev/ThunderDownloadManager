@@ -17,7 +17,7 @@
         PackageDisplayName="Thunder Download Manager"
         PublisherName="CN=Thunder Download Manager"
         PublisherDisplayName="Thunder Download Manager"
-        Version="1.0.0.0"
+        Version="1.0.4.0"
         PackageDescription="High performance download manager">
         <Capabilities>
             <Capability Name="runFullTrust" />
@@ -37,7 +37,7 @@
             <Resource Language="en-us" />
         </Resources>
         <Dependencies>
-            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="1.0.0.0" MaxVersionTested="10.0.19041.0" />
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="1.0.4.0" MaxVersionTested="10.0.19041.0" />
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
