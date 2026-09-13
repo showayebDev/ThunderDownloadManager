@@ -72,7 +72,7 @@ API.runtime.sendMessage({ action: 'GET_CONFIG' }, (res) => {
     }
 
     if (togglePassCookies) {
-      togglePassCookies.checked = Boolean(res.config.passCookies);
+      togglePassCookies.checked = res.config.passCookies !== undefined ? Boolean(res.config.passCookies) : true;
     }
     
     // Badge display mode ('hover', 'always', or 'never')
