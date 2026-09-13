@@ -683,9 +683,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             ? incomingDL
             : d.downloaded;
 
-          const finalSize = (incomingTotal && incomingTotal > 0)
+          const finalSize = (incomingTotal !== undefined && incomingTotal !== null && incomingTotal >= 0)
             ? incomingTotal
-            : d.size;
+            : (d.size || 0);
 
           const updatedFilename = payload.filename || d.name;
           const detectedCat = detectCategory(updatedFilename || d.url);
@@ -694,7 +694,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             : detectedCat;
 
           let finalStatus = (payload.status as any) || d.status;
-          if (payload.status === 'Finished' || (finalSize > 0 && finalDL >= finalSize && (payload.status === 'Finished' || isFinished))) {
+          if (payload.status === 'Finished' || isFinished || (finalSize > 0 && finalDL >= finalSize)) {
             finalStatus = 'Finished';
           }
 

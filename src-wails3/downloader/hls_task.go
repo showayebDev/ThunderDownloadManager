@@ -1007,7 +1007,7 @@ func (tc *HLSTaskController) GetState() map[string]interface{} {
 		"save_path":          tc.State.SavePath,
 		"error_message":      tc.State.ErrorMessage,
 		"is_hls":             true,
-		"speed_limit":        tc.getEffectiveSpeedLimit(),
+		"speed_limit":        tc.getEffectiveSpeedLimitLocked(),
 		"thread_count":       tc.State.ThreadCount,
 		"total_segments":     tc.State.TotalSegments,
 		"completed_segments": completedSegs,

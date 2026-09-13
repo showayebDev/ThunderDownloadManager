@@ -561,24 +561,36 @@ func (tc *TaskController) preCheck() error {
 		}
 	}
 
-	var totalSize int64
+	var totalSize int64 = -1
+	hasSizeHeader := false
+
 	// Parse Content-Range if returned for byte probe
 	if cr := resp.Header.Get("Content-Range"); cr != "" {
 		if idx := strings.LastIndex(cr, "/"); idx != -1 {
-			totalSize, _ = strconv.ParseInt(cr[idx+1:], 10, 64)
+			if s, err := strconv.ParseInt(cr[idx+1:], 10, 64); err == nil && s >= 0 {
+				totalSize = s
+				hasSizeHeader = true
+			}
 		}
 	}
 
 	// Fallback to Content-Length
-	if totalSize == 0 {
+	if !hasSizeHeader {
 		if cl := resp.Header.Get("Content-Length"); cl != "" {
-			totalSize, _ = strconv.ParseInt(cl, 10, 64)
+			if s, err := strconv.ParseInt(cl, 10, 64); err == nil && s >= 0 {
+				totalSize = s
+				hasSizeHeader = true
+			}
 		}
 	}
 
-	if totalSize <= 0 {
+	if !hasSizeHeader || totalSize < 0 {
 		// Stream / dynamic content: fallback to 1 thread streaming
 		tc.State.TotalSize = -1
+		tc.State.ThreadCount = 1
+	} else if totalSize == 0 {
+		// Empty file (0 bytes)
+		tc.State.TotalSize = 0
 		tc.State.ThreadCount = 1
 	} else {
 		tc.State.TotalSize = totalSize
@@ -671,6 +683,8 @@ func (tc *TaskController) initializeChunks(opts ...bool) {
 		var endByte int64 = -1
 		if tc.State.TotalSize > 0 {
 			endByte = tc.State.TotalSize - 1
+		} else if tc.State.TotalSize == 0 {
+			endByte = 0
 		}
 		tc.State.Chunks = []*ChunkState{
 			{
@@ -1523,7 +1537,7 @@ func (tc *TaskController) GetState() map[string]interface{} {
 		"expectedChecksum":  tc.State.ExpectedChecksum,
 		"chunks":            chunkPayloads,
 		"is_hls":            false,
-		"speed_limit":       tc.getEffectiveSpeedLimit(),
+		"speed_limit":       tc.getEffectiveSpeedLimitLocked(),
 		"resumable":         tc.State.Resumable,
 		"resume_support":    resumeSupportStr,
 		"accept_ranges":     tc.State.Resumable,

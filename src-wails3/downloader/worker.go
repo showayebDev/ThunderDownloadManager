@@ -260,7 +260,11 @@ func DownloadChunk(ctx context.Context, url string, chunk *ChunkState, file *os.
 						chunk.SetStatus(StatusFinished)
 						return nil
 					}
-					if dynamicEnd <= 0 {
+					if dynamicEnd == 0 {
+						chunk.SetStatus(StatusFinished)
+						return nil
+					}
+					if dynamicEnd < 0 {
 						chunk.SetEndByte(currentByte - 1)
 						chunk.SetStatus(StatusFinished)
 						return nil
