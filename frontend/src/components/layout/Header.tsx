@@ -181,6 +181,10 @@ export const Header: React.FC = () => {
       BrowserOpenURL('https://addons.mozilla.org/en-US/firefox/addon/thunder-download-manager/');
       return;
     }
+    if (_browser === 'chrome' || _browser === 'edge') {
+      BrowserOpenURL('https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe');
+      return;
+    }
     openModal('settings');
   };
 

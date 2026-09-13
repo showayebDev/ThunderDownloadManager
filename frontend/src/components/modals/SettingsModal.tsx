@@ -36,7 +36,6 @@ import {
   SelectItem,
 } from '../ui/select';
 import { ScrollArea } from '../ui/scroll-area';
-import { Badge } from '../ui/badge';
 
 const COLOR_THEMES: { id: ColorTheme; name: string; hex: string }[] = [
   { id: 'violet', name: 'Violet (Cosmic Purple)', hex: '#8b5cf6' },
@@ -1035,13 +1034,31 @@ export const SettingsModal: React.FC = () => {
                     Available Browser Extensions
                   </Label>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="p-4 rounded-xl border border-border/70 bg-card/60 flex flex-col items-center text-center space-y-2.5 transition-all hover:border-primary/50">
-                      <img src="/browsers/chrome.svg" alt="Chrome" className="w-8 h-8 object-contain" />
+                    <div
+                      onClick={() => BrowserOpenURL('https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe')}
+                      className="p-4 rounded-xl border border-border/70 bg-card/60 flex flex-col items-center text-center space-y-2.5 transition-all hover:border-primary/50 hover:bg-muted/20 cursor-pointer group select-none"
+                    >
+                      <img src="/browsers/chrome.svg" alt="Chrome" className="w-8 h-8 object-contain transition-transform group-hover:scale-105" />
                       <div>
-                        <p className="font-semibold text-xs text-foreground">Google Chrome</p>
+                        <p className="font-semibold text-xs text-foreground group-hover:text-primary transition-colors flex items-center justify-center gap-1">
+                          <span>Google Chrome</span>
+                          <ExternalLink className="w-3 h-3 text-muted-foreground group-hover:text-primary shrink-0" />
+                        </p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">Chromium & Brave</p>
                       </div>
-                      <Badge variant="outline" className="text-[10px] bg-muted/40 font-medium">Universal WebExtension</Badge>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2.5 rounded-lg text-primary border-primary/30 hover:bg-primary/10 gap-1 font-medium cursor-pointer shadow-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          BrowserOpenURL('https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe');
+                        }}
+                      >
+                        <ExternalLink className="w-2.5 h-2.5" />
+                        <span>Get Extension</span>
+                      </Button>
                     </div>
 
                     <div
@@ -1071,13 +1088,31 @@ export const SettingsModal: React.FC = () => {
                       </Button>
                     </div>
 
-                    <div className="p-4 rounded-xl border border-border/70 bg-card/60 flex flex-col items-center text-center space-y-2.5 transition-all hover:border-primary/50">
-                      <img src="/browsers/edge.svg" alt="Edge" className="w-8 h-8 object-contain" />
+                    <div
+                      onClick={() => BrowserOpenURL('https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe')}
+                      className="p-4 rounded-xl border border-border/70 bg-card/60 flex flex-col items-center text-center space-y-2.5 transition-all hover:border-primary/50 hover:bg-muted/20 cursor-pointer group select-none"
+                    >
+                      <img src="/browsers/edge.svg" alt="Edge" className="w-8 h-8 object-contain transition-transform group-hover:scale-105" />
                       <div>
-                        <p className="font-semibold text-xs text-foreground">Microsoft Edge</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">Edge Addons</p>
+                        <p className="font-semibold text-xs text-foreground group-hover:text-primary transition-colors flex items-center justify-center gap-1">
+                          <span>Microsoft Edge</span>
+                          <ExternalLink className="w-3 h-3 text-muted-foreground group-hover:text-primary shrink-0" />
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">Chromium Engine</p>
                       </div>
-                      <Badge variant="outline" className="text-[10px] bg-muted/40 font-medium">Universal WebExtension</Badge>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2.5 rounded-lg text-primary border-primary/30 hover:bg-primary/10 gap-1 font-medium cursor-pointer shadow-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          BrowserOpenURL('https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe');
+                        }}
+                      >
+                        <ExternalLink className="w-2.5 h-2.5" />
+                        <span>Get Extension</span>
+                      </Button>
                     </div>
                   </div>
                 </div>

@@ -11,6 +11,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 
 	xdraw "golang.org/x/image/draw"
 )
@@ -18,25 +20,25 @@ import (
 const svgTemplate = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="100%" height="100%">
   <defs>
     <linearGradient id="bg-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#161030" />
-      <stop offset="100%" stop-color="#7C20EB" />
+      <stop offset="0%" stop-color="#27272A" />
+      <stop offset="100%" stop-color="#09090B" />
     </linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#080414" flood-opacity="0.75" />
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.85" />
     </filter>
   </defs>
   <!-- Squircle background -->
   <rect x="51.2" y="51.2" width="921.6" height="921.6" rx="225.28" ry="225.28" fill="url(#bg-grad)" />
   <!-- Border stroke -->
-  <rect x="51.2" y="51.2" width="921.6" height="921.6" rx="225.28" ry="225.28" fill="none" stroke="#C48CFF" stroke-width="16.384" stroke-opacity="0.85" />
+  <rect x="51.2" y="51.2" width="921.6" height="921.6" rx="225.28" ry="225.28" fill="none" stroke="#52525B" stroke-width="16.384" stroke-opacity="0.85" />
   <!-- Emblem group with shadow -->
   <g filter="url(#shadow)">
     <!-- Pure Solid White Arrow -->
     <polygon points="414.72,233.47 609.28,233.47 609.28,438.27 752.64,438.27 512,730.11 271.36,438.27 414.72,438.27" fill="#FFFFFF" />
-    <!-- Electric Cyan Speed Bar -->
-    <rect x="312.32" y="781.31" width="399.36" height="46.08" rx="22.53" ry="22.53" fill="#38BDF8" />
+    <!-- Zinc Accent Speed Bar -->
+    <rect x="312.32" y="781.31" width="399.36" height="46.08" rx="22.53" ry="22.53" fill="#E4E4E7" />
     <!-- Dynamic Lightning Cutout -->
-    <polygon points="561.15,289.79 442.37,484.35 530.43,484.35 464.90,675.84 581.63,512.00 493.57,512.00" fill="#7C3AED" />
+    <polygon points="561.15,289.79 442.37,484.35 530.43,484.35 464.90,675.84 581.63,512.00 493.57,512.00" fill="#09090B" />
   </g>
 </svg>`
 
@@ -253,64 +255,92 @@ func createSuperIcon(size int) image.Image {
 	minX, minY := padding, padding
 	maxX, maxY := fSize-padding, fSize-padding
 
-	for y := 0; y < size; y++ {
-		fy := float64(y) + 0.5
-		rRatio := fy / fSize
+	numWorkers := runtime.NumCPU()
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
+	var wg sync.WaitGroup
+	rowsPerWorker := (size + numWorkers - 1) / numWorkers
 
-		bgR := uint8(22*(1-rRatio) + 124*rRatio)
-		bgG := uint8(14*(1-rRatio) + 32*rRatio)
-		bgB := uint8(64*(1-rRatio) + 225*rRatio)
-
-		for x := 0; x < size; x++ {
-			fx := float64(x) + 0.5
-
-			sqDist := distanceToRoundedRect(fx, fy, minX, minY, maxX, maxY, radius)
-			if sqDist > radius+0.5 {
-				continue
-			}
-
-			squircleAlpha := 1.0
-			if sqDist > radius-0.5 {
-				squircleAlpha = math.Max(0, math.Min(1, radius+0.5-sqDist))
-			}
-
-			pr, pg, pb, pa := bgR, bgG, bgB, uint8(255)
-
-			strokeDist := math.Abs(sqDist - radius)
-			if strokeDist <= strokeWidth/2.0+0.5 {
-				sAlpha := 1.0
-				if strokeDist > strokeWidth/2.0-0.5 {
-					sAlpha = math.Max(0, math.Min(1, strokeWidth/2.0+0.5-strokeDist))
-				}
-				sAlpha *= 0.85
-
-				br, bg, bb := uint8(196), uint8(140), uint8(255)
-				pr = uint8(float64(br)*sAlpha + float64(pr)*(1-sAlpha))
-				pg = uint8(float64(bg)*sAlpha + float64(pg)*(1-sAlpha))
-				pb = uint8(float64(bb)*sAlpha + float64(pb)*(1-sAlpha))
-			}
-
-			pt := Point{X: fx, Y: fy}
-
-			inArrow := isInsidePolygon(pt, arrowPts)
-
-			bDist := distanceToRoundedRect(fx, fy, barMinX, barMinY, barMaxX, barMaxY, barRadius)
-			inBar := bDist <= barRadius
-
-			if inArrow {
-				pr, pg, pb = 255, 255, 255
-				if isInsidePolygon(pt, lightningPts) {
-					pr, pg, pb = 124, 58, 237
-				}
-			} else if inBar {
-				pr, pg, pb = 56, 189, 248
-			}
-
-			finalA := uint8(float64(pa) * squircleAlpha)
-			img.SetRGBA(x, y, color.RGBA{R: pr, G: pg, B: pb, A: finalA})
+	for w := 0; w < numWorkers; w++ {
+		startY := w * rowsPerWorker
+		endY := startY + rowsPerWorker
+		if endY > size {
+			endY = size
 		}
+		if startY >= size {
+			break
+		}
+
+		wg.Add(1)
+		go func(y0, y1 int) {
+			defer wg.Done()
+			for y := y0; y < y1; y++ {
+				fy := float64(y) + 0.5
+				rRatio := fy / fSize
+
+				// Zinc theme gradient: #27272A (top) to #09090B (bottom)
+				bgR := uint8(39*(1-rRatio) + 9*rRatio)
+				bgG := uint8(39*(1-rRatio) + 9*rRatio)
+				bgB := uint8(42*(1-rRatio) + 11*rRatio)
+
+				for x := 0; x < size; x++ {
+					fx := float64(x) + 0.5
+
+					sqDist := distanceToRoundedRect(fx, fy, minX, minY, maxX, maxY, radius)
+					if sqDist > radius+0.5 {
+						continue
+					}
+
+					squircleAlpha := 1.0
+					if sqDist > radius-0.5 {
+						squircleAlpha = math.Max(0, math.Min(1, radius+0.5-sqDist))
+					}
+
+					pr, pg, pb, pa := bgR, bgG, bgB, uint8(255)
+
+					strokeDist := math.Abs(sqDist - radius)
+					if strokeDist <= strokeWidth/2.0+0.5 {
+						sAlpha := 1.0
+						if strokeDist > strokeWidth/2.0-0.5 {
+							sAlpha = math.Max(0, math.Min(1, strokeWidth/2.0+0.5-strokeDist))
+						}
+						sAlpha *= 0.85
+
+						// Zinc border stroke: #52525B (zinc-600)
+						br, bg, bb := uint8(82), uint8(82), uint8(91)
+						pr = uint8(float64(br)*sAlpha + float64(pr)*(1-sAlpha))
+						pg = uint8(float64(bg)*sAlpha + float64(pg)*(1-sAlpha))
+						pb = uint8(float64(bb)*sAlpha + float64(pb)*(1-sAlpha))
+					}
+
+					pt := Point{X: fx, Y: fy}
+
+					inArrow := isInsidePolygon(pt, arrowPts)
+
+					bDist := distanceToRoundedRect(fx, fy, barMinX, barMinY, barMaxX, barMaxY, barRadius)
+					inBar := bDist <= barRadius
+
+					if inArrow {
+						// Pure Solid White Arrow: #FFFFFF
+						pr, pg, pb = 255, 255, 255
+						if isInsidePolygon(pt, lightningPts) {
+							// Dark Zinc Lightning Cutout: #09090B (zinc-950)
+							pr, pg, pb = 9, 9, 11
+						}
+					} else if inBar {
+						// Zinc Speed Bar: #E4E4E7 (zinc-200)
+						pr, pg, pb = 228, 228, 231
+					}
+
+					finalA := uint8(float64(pa) * squircleAlpha)
+					img.SetRGBA(x, y, color.RGBA{R: pr, G: pg, B: pb, A: finalA})
+				}
+			}
+		}(startY, endY)
 	}
 
+	wg.Wait()
 	return img
 }
 
