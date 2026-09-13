@@ -369,9 +369,58 @@ function showAppNotRunningAlert(tabId, customMessage, targetUrl, targetFilename)
   }
 }
 
-// Get active server-side and client-side cookies for domain
-async function getCookiesForUrl(url, tabId) {
+// Extract domain / hostname from URL
+function getDomainHostname(urlStr) {
+  if (!urlStr) return '';
+  try {
+    const url = new URL(urlStr);
+    return url.hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+// Extract base/root domain (handles subdomains and common multipart TLDs)
+function getBaseDomain(hostname) {
+  if (!hostname) return '';
+  // Handle IP addresses or localhost
+  if (/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(hostname) || hostname === 'localhost') {
+    return hostname;
+  }
+  const parts = hostname.split('.');
+  if (parts.length <= 2) {
+    return hostname;
+  }
+  const secondLevelTlds = new Set(['co.uk', 'gov.uk', 'ac.uk', 'org.uk', 'com.bd', 'edu.bd', 'gov.bd', 'com.au', 'net.au', 'org.au', 'co.jp', 'com.br', 'com.tr', 'co.nz']);
+  const lastTwo = parts.slice(-2).join('.');
+  if (secondLevelTlds.has(lastTwo) && parts.length >= 3) {
+    return parts.slice(-3).join('.');
+  }
+  return parts.slice(-2).join('.');
+}
+
+// Check if page/referrer and file download URL share the same host or base domain
+function isSameDomainOrHost(pageUrl, fileUrl) {
+  if (!pageUrl || !fileUrl) return true;
+  const pageHost = getDomainHostname(pageUrl);
+  const fileHost = getDomainHostname(fileUrl);
+  if (!pageHost || !fileHost) return false;
+  if (pageHost === fileHost) return true;
+
+  const pageBase = getBaseDomain(pageHost);
+  const fileBase = getBaseDomain(fileHost);
+  return pageBase === fileBase;
+}
+
+// Get active server-side and client-side cookies for domain (strictly matching domain)
+async function getCookiesForUrl(url, tabId, pageUrl) {
   if (!config.passCookies || !url) return '';
+
+  // Cross-host verification: if pageUrl/referrer is present, ensure it matches the file's host/domain
+  if (pageUrl && !isSameDomainOrHost(pageUrl, url)) {
+    return '';
+  }
+
   try {
     const cookieMap = new Map();
 
@@ -389,7 +438,7 @@ async function getCookiesForUrl(url, tabId) {
       } catch {}
     }
 
-    // 2. Client-side cookies from the target tab if accessible
+    // 2. Client-side cookies from the target tab if accessible and domain matches
     if (tabId && API.scripting && API.scripting.executeScript) {
       try {
         const results = await API.scripting.executeScript({
@@ -527,11 +576,12 @@ API.contextMenus.onClicked.addListener(async (info, tab) => {
   const isVideo = info.mediaType === 'video' || info.menuItemId === 'thunderdm-download-video' || isVideoSite(targetUrl) || Boolean(lastContextMedia?.isVideo);
   const isVideoStreamingSite = isVideoSite(targetUrl);
 
-  const cookies = await getCookiesForUrl(targetUrl, tab?.id);
+  const pageUrl = tab?.url || info.pageUrl || '';
+  const cookies = await getCookiesForUrl(targetUrl, tab?.id, pageUrl);
 
   const payload = {
     url: targetUrl,
-    referrer: tab?.url || info.pageUrl || '',
+    referrer: pageUrl,
     cookies: cookies,
     user_agent: navigator.userAgent,
     is_ytdlp: isVideoStreamingSite,
@@ -580,13 +630,14 @@ if (API.downloads && API.downloads.onCreated) {
 
     // Forward download details to app
     (async () => {
-      const cookies = await getCookiesForUrl(url);
+      const pageUrl = downloadItem.referrer || '';
+      const cookies = await getCookiesForUrl(url, undefined, pageUrl);
       const filename = downloadItem.filename ? downloadItem.filename.split(/[/\\\\]/).pop() : '';
 
       const payload = {
         url: url,
         filename: filename,
-        referrer: downloadItem.referrer || '',
+        referrer: pageUrl,
         cookies: cookies,
         user_agent: navigator.userAgent,
         is_ytdlp: isVideoSite(url),
@@ -631,13 +682,19 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'SEND_DOWNLOAD') {
     (async () => {
       let cookies = '';
-      if (config.passCookies) {
-        if (request.payload.cookies) {
-          cookies = request.payload.cookies;
-        } else if (request.payload.url) {
-          cookies = await getCookiesForUrl(request.payload.url, sender?.tab?.id);
+      const pageUrl = sender?.tab?.url || request.payload?.referrer || '';
+      const targetUrl = request.payload?.url || '';
+
+      if (config.passCookies && targetUrl) {
+        if (isSameDomainOrHost(pageUrl, targetUrl)) {
+          if (request.payload.cookies) {
+            cookies = request.payload.cookies;
+          } else {
+            cookies = await getCookiesForUrl(targetUrl, sender?.tab?.id, pageUrl);
+          }
         }
       }
+
       const payload = {
         ...request.payload,
         cookies: cookies || '',
