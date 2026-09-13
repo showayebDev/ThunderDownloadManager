@@ -15,7 +15,7 @@ let config = {
   badgeMode: 'never',
   unhoverDelay: 3,
   serverPort: 37555,
-  passCookies: false
+  passCookies: true
 };
 
 // Load stored settings
