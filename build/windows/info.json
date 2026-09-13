@@ -1,32 +1,32 @@
 {
 	"fixed": {
-		"file_version": "1.0.0.0",
-		"product_version": "1.0.0.0"
+		"file_version": "1.0.4.0",
+		"product_version": "1.0.4.0"
 	},
 	"info": {
 		"0409": {
 			"Comments": "Thunder Download Manager",
 			"CompanyName": "",
 			"FileDescription": "Thunder Download Manager",
-			"FileVersion": "1.0.0.0",
+			"FileVersion": "1.0.4.0",
 			"InternalName": "Thunder Download Manager",
 			"LegalCopyright": "© 2026 Thunder Download Manager",
 			"LegalTrademarks": "Thunder Download Manager",
 			"OriginalFilename": "ThunderDownloadManager.exe",
 			"ProductName": "Thunder Download Manager",
-			"ProductVersion": "1.0.0"
+			"ProductVersion": "1.0.4"
 		},
 		"0000": {
 			"Comments": "Thunder Download Manager",
 			"CompanyName": "",
 			"FileDescription": "Thunder Download Manager",
-			"FileVersion": "1.0.0.0",
+			"FileVersion": "1.0.4.0",
 			"InternalName": "Thunder Download Manager",
 			"LegalCopyright": "© 2026 Thunder Download Manager",
 			"LegalTrademarks": "Thunder Download Manager",
 			"OriginalFilename": "ThunderDownloadManager.exe",
 			"ProductName": "Thunder Download Manager",
-			"ProductVersion": "1.0.0"
+			"ProductVersion": "1.0.4"
 		}
 	}
 }

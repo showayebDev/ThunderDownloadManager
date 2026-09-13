@@ -15,6 +15,15 @@ const inputHoverDelay = document.getElementById('input-hover-delay');
 const labelHoverDelay = document.getElementById('label-hover-delay');
 const toastEl = document.getElementById('toast');
 const btnDownloadApp = document.getElementById('btn-download-app');
+const extensionVersionEl = document.getElementById('extension-version');
+
+// Populate runtime manifest version
+try {
+  const manifest = API.runtime?.getManifest ? API.runtime.getManifest() : null;
+  if (manifest?.version && extensionVersionEl) {
+    extensionVersionEl.textContent = `v${manifest.version}`;
+  }
+} catch {}
 
 // Advanced config controls
 const btnToggleAdvanced = document.getElementById('btn-toggle-advanced');
