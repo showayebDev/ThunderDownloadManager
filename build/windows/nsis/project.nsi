@@ -6,8 +6,8 @@ Unicode true
 !define INFO_PROJECTNAME    "ThunderDM"
 !define INFO_COMPANYNAME    ""
 !define INFO_PRODUCTNAME    "Thunder Download Manager"
-!define INFO_PRODUCTVERSION "1.0.0"
-!define INFO_FILEVERSION    "1.0.0.0"
+!define INFO_PRODUCTVERSION "1.0.3"
+!define INFO_FILEVERSION    "1.0.3.0"
 !define INFO_COPYRIGHT      "© 2026 Thunder Download Manager"
 ###
 !define PRODUCT_EXECUTABLE  "ThunderDownloadManager.exe"
