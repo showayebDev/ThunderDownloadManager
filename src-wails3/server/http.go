@@ -109,8 +109,13 @@ func handleAddDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proto := req.Protocol
-	if req.IsYTDLP && proto == "" {
-		proto = "Yt-DLP"
+	lowerURL := strings.ToLower(req.URL)
+	if proto == "" {
+		if strings.HasPrefix(lowerURL, "magnet:") || strings.HasSuffix(lowerURL, ".torrent") || strings.Contains(lowerURL, ".torrent?") {
+			proto = "Torrent"
+		} else if req.IsYTDLP {
+			proto = "Yt-DLP"
+		}
 	}
 
 	payload := map[string]interface{}{

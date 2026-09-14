@@ -936,6 +936,30 @@ document.addEventListener('click', (e) => {
   }
 
   const urlStr = anchor.href;
+  if (!urlStr) return;
+
+  // Handle Magnet Links directly
+  if (urlStr.toLowerCase().startsWith('magnet:')) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    safeSendMessage({
+      action: 'SEND_DOWNLOAD',
+      payload: {
+        url: urlStr,
+        referrer: window.location.href,
+        is_torrent: true,
+        protocol: 'Torrent',
+        title: anchor.textContent?.trim() || document.title || 'Torrent Download'
+      }
+    }, (res) => {
+      if (res && !res.success) {
+        showInPageAlert('ThunderDM is Not Running', res.error || 'Thunder Download Manager is not running in background. Please start the app.', urlStr);
+      }
+    });
+    return;
+  }
+
   if (
     urlStr.startsWith('blob:') ||
     urlStr.startsWith('data:') ||
@@ -952,19 +976,24 @@ document.addEventListener('click', (e) => {
     const ext = pathname.split('.').pop()?.split('?')[0];
 
     const hasDownloadAttr = anchor.hasAttribute('download');
+    const isTorrent = ext === 'torrent' || pathname.endsWith('.torrent');
     const isDownloadExt = ext && DOWNLOAD_EXTENSIONS.has(ext);
 
-    if (hasDownloadAttr || isDownloadExt) {
+    if (hasDownloadAttr || isDownloadExt || isTorrent) {
       e.preventDefault();
       e.stopPropagation();
+
+      const isVideo = !isTorrent && isVideoSite(url.href);
+      const proto = isTorrent ? 'Torrent' : (isVideo ? 'Yt-DLP' : 'Auto');
 
       safeSendMessage({
         action: 'SEND_DOWNLOAD',
         payload: {
           url: url.href,
           referrer: window.location.href,
-          is_ytdlp: isVideoSite(url.href),
-          protocol: isVideoSite(url.href) ? 'Yt-DLP' : 'Auto',
+          is_torrent: isTorrent,
+          is_ytdlp: isVideo,
+          protocol: proto,
           title: anchor.textContent?.trim() || document.title || ''
         }
       }, (res) => {

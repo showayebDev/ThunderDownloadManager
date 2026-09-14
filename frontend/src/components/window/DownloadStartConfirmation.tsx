@@ -547,15 +547,25 @@ export const DownloadStartConfirmation: React.FC = () => {
         'soundcloud.com',
         'twitch.tv',
       ];
+      const isTorrent =
+        protocol === 'Torrent' ||
+        url.toLowerCase().startsWith('magnet:') ||
+        url.toLowerCase().endsWith('.torrent') ||
+        url.toLowerCase().includes('.torrent?') ||
+        cleanFilename.toLowerCase().endsWith('.torrent');
       const isYTDLP =
-        protocol === 'Yt-DLP' || ytDlpHosts.some((h) => url.toLowerCase().includes(h));
+        !isTorrent &&
+        (protocol === 'Yt-DLP' || ytDlpHosts.some((h) => url.toLowerCase().includes(h)));
       const isHLS =
+        !isTorrent &&
         !isYTDLP &&
         (url.toLowerCase().includes('.m3u8') ||
           cleanFilename.toLowerCase().endsWith('.m3u8') ||
           protocol === 'HLS');
 
-      if (isYTDLP) {
+      if (isTorrent) {
+        setProtocol('Torrent');
+      } else if (isYTDLP) {
         setProtocol('Yt-DLP');
         if (
           !cleanFilename ||
@@ -581,7 +591,7 @@ export const DownloadStartConfirmation: React.FC = () => {
       }
 
       if (cleanFilename) {
-        const detectedCat = isYTDLP || isHLS ? 'Videos' : detectCategory(cleanFilename);
+        const detectedCat = isTorrent ? 'Torrents' : (isYTDLP || isHLS ? 'Videos' : detectCategory(cleanFilename));
         setCategory(detectedCat);
         const customCatPath = detectedCat ? categoryPaths[detectedCat] : undefined;
         const targetPath =
@@ -895,7 +905,10 @@ export const DownloadStartConfirmation: React.FC = () => {
           .catch(() => {
             setName(info.filename);
           });
-        if (info.is_ytdlp) {
+        if (info.is_torrent) {
+          setProtocol('Torrent');
+          setCategory('Torrents');
+        } else if (info.is_ytdlp) {
           setProtocol('Yt-DLP');
           setCategory('Videos');
           if (Array.isArray(info.formats) && info.formats.length > 0) {

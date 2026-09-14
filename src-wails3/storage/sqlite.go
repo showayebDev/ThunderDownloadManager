@@ -695,6 +695,37 @@ func UpdateDownloadSpeedLimit(id string, speedLimit *int64) error {
 	return err
 }
 
+// UpdateDownloadMetadata updates the name and total size of a download.
+func UpdateDownloadMetadata(id string, name string, size int64) error {
+	dbWriteMu.Lock()
+	defer dbWriteMu.Unlock()
+
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`UPDATE downloads SET name = ?, size = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, name, size, id)
+	return err
+}
+
+// UpdateDownloadProgress updates the progress, status, and error message of a download.
+func UpdateDownloadProgress(id string, downloaded int64, totalSize int64, status string, errMsg string, chunks []byte) error {
+	dbWriteMu.Lock()
+	defer dbWriteMu.Unlock()
+
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+
+	if len(chunks) > 0 {
+		_, err = db.Exec(`UPDATE downloads SET downloaded = ?, size = ?, status = ?, error_message = ?, chunks_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, downloaded, totalSize, status, errMsg, string(chunks), id)
+	} else {
+		_, err = db.Exec(`UPDATE downloads SET downloaded = ?, size = ?, status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, downloaded, totalSize, status, errMsg, id)
+	}
+	return err
+}
+
 // CheckFilenameExists checks if a download with the given name exists in SQLite downloads table.
 func CheckFilenameExists(savePath, filename string) bool {
 	cleanFile := strings.TrimSpace(filename)

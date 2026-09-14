@@ -362,3 +362,34 @@ func NormalizeSavePath(savePath string, category ...string) string {
 	return filepath.Clean(savePath)
 }
 
+// IsTorrentURL checks if the provided URL or file path represents a BitTorrent source (Magnet link or .torrent file).
+func IsTorrentURL(urlStr string) bool {
+	trimmed := strings.TrimSpace(urlStr)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "magnet:") {
+		return true
+	}
+	if strings.HasSuffix(lower, ".torrent") {
+		return true
+	}
+	if strings.Contains(lower, ".torrent?") || strings.Contains(lower, ".torrent#") {
+		return true
+	}
+	return false
+}
+
+// IsTorrentFile checks if the provided file path is a local .torrent file.
+func IsTorrentFile(filePath string) bool {
+	clean := filepath.Clean(strings.TrimSpace(filePath))
+	if clean == "" {
+		return false
+	}
+	if strings.HasPrefix(clean, "file://") {
+		clean = strings.TrimPrefix(clean, "file://")
+	}
+	return strings.EqualFold(filepath.Ext(clean), ".torrent")
+}
+

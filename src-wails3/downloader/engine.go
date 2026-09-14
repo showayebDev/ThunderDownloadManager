@@ -207,11 +207,14 @@ func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, thread
 		// Task is inactive, we can safely overwrite it to resume
 	}
 
-	isYTDLP := strings.EqualFold(proto, "Yt-DLP") || strings.EqualFold(proto, "YT-DLP") || strings.EqualFold(proto, "ytdlp") || (strings.EqualFold(proto, "Auto") && IsYTDLPURL(cleanURL))
-	isHLS := !isYTDLP && (strings.EqualFold(proto, "HLS") || IsHLSURL(cleanURL))
+	isTorrent := strings.EqualFold(proto, "Torrent") || strings.EqualFold(proto, "BitTorrent") || IsTorrentURL(cleanURL) || IsTorrentFile(cleanURL)
+	isYTDLP := !isTorrent && (strings.EqualFold(proto, "Yt-DLP") || strings.EqualFold(proto, "YT-DLP") || strings.EqualFold(proto, "ytdlp") || (strings.EqualFold(proto, "Auto") && IsYTDLPURL(cleanURL)))
+	isHLS := !isTorrent && !isYTDLP && (strings.EqualFold(proto, "HLS") || IsHLSURL(cleanURL))
 
 	var taskRunner TaskRunner
-	if isYTDLP {
+	if isTorrent {
+		taskRunner = NewTorrentTaskController(e.ctx, id, cleanURL, savePath, filename, threadCount, speedLimit, parsedOpts)
+	} else if isYTDLP {
 		taskRunner = NewYTDLPTaskController(e.ctx, id, cleanURL, savePath, filename, quality, prevDL, prevTotal, parsedOpts)
 	} else if isHLS {
 		taskRunner = NewHLSTaskController(e.ctx, id, cleanURL, savePath, filename, threadCount, speedLimit, parsedOpts)
@@ -229,6 +232,7 @@ func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, thread
 			"url":            cleanURL,
 			"filename":       filename,
 			"save_path":      savePath,
+			"is_torrent":     isTorrent,
 			"is_hls":         isHLS,
 			"is_ytdlp":       isYTDLP,
 			"protocol":       proto,

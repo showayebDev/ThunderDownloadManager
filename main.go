@@ -89,13 +89,19 @@ func main() {
 						mainWindow.Restore()
 						mainWindow.Focus()
 					}
-					// If a URL was passed to the 2nd instance via command line
+					// If a URL or torrent was passed to the 2nd instance via command line
 					if len(data.Args) > 1 {
 						for _, arg := range data.Args[1:] {
 							trimmed := strings.TrimSpace(arg)
-							if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+							lower := strings.ToLower(trimmed)
+							if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(lower, "magnet:") || strings.HasSuffix(lower, ".torrent") {
+								proto := "Auto"
+								if strings.HasPrefix(lower, "magnet:") || strings.HasSuffix(lower, ".torrent") {
+									proto = "Torrent"
+								}
 								commands.OpenDownloadConfirmationWindow(a, map[string]interface{}{
-									"url": trimmed,
+									"url":      trimmed,
+									"protocol": proto,
 								})
 								break
 							}

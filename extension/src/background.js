@@ -573,8 +573,10 @@ API.contextMenus.onClicked.addListener(async (info, tab) => {
     return;
   }
 
-  const isVideo = info.mediaType === 'video' || info.menuItemId === 'thunderdm-download-video' || isVideoSite(targetUrl) || Boolean(lastContextMedia?.isVideo);
-  const isVideoStreamingSite = isVideoSite(targetUrl);
+  const lowerTarget = (targetUrl || '').toLowerCase();
+  const isTorrent = lowerTarget.startsWith('magnet:') || lowerTarget.endsWith('.torrent') || lowerTarget.includes('.torrent?');
+  const isVideo = !isTorrent && (info.mediaType === 'video' || info.menuItemId === 'thunderdm-download-video' || isVideoSite(targetUrl) || Boolean(lastContextMedia?.isVideo));
+  const isVideoStreamingSite = !isTorrent && isVideoSite(targetUrl);
 
   const pageUrl = tab?.url || info.pageUrl || '';
   const cookies = await getCookiesForUrl(targetUrl, tab?.id, pageUrl);
@@ -584,8 +586,9 @@ API.contextMenus.onClicked.addListener(async (info, tab) => {
     referrer: pageUrl,
     cookies: cookies,
     user_agent: navigator.userAgent,
+    is_torrent: isTorrent,
     is_ytdlp: isVideoStreamingSite,
-    protocol: isVideoStreamingSite ? 'Yt-DLP' : 'Auto',
+    protocol: isTorrent ? 'Torrent' : (isVideoStreamingSite ? 'Yt-DLP' : 'Auto'),
     title: lastContextMedia?.title || tab?.title || ''
   };
 
@@ -634,14 +637,20 @@ if (API.downloads && API.downloads.onCreated) {
       const cookies = await getCookiesForUrl(url, undefined, pageUrl);
       const filename = downloadItem.filename ? downloadItem.filename.split(/[/\\\\]/).pop() : '';
 
+      const lowerUrl = url.toLowerCase();
+      const fnLower = (filename || '').toLowerCase();
+      const isTorrent = lowerUrl.startsWith('magnet:') || lowerUrl.endsWith('.torrent') || lowerUrl.includes('.torrent?') || fnLower.endsWith('.torrent');
+      const isVideo = !isTorrent && isVideoSite(url);
+
       const payload = {
         url: url,
         filename: filename,
         referrer: pageUrl,
         cookies: cookies,
         user_agent: navigator.userAgent,
-        is_ytdlp: isVideoSite(url),
-        protocol: isVideoSite(url) ? 'Yt-DLP' : 'Auto'
+        is_torrent: isTorrent,
+        is_ytdlp: isVideo,
+        protocol: isTorrent ? 'Torrent' : (isVideo ? 'Yt-DLP' : 'Auto')
       };
 
       await sendToThunderDM(payload);
