@@ -144,6 +144,21 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         return (await FileCommand.ResolveUniqueFilename(args?.save_path || args?.savePath || '', args?.filename || '')) as T;
       case 'pick_folder_command':
         return (await FileCommand.PickFolder()) as T;
+      case 'pick_torrent_file_command':
+      case 'pick_torrent_file': {
+        try {
+          if (typeof (FileCommand as any).PickTorrentFile === 'function') {
+            return (await (FileCommand as any).PickTorrentFile()) as T;
+          }
+        } catch {}
+        try {
+          return (await (Call as any).ByName('ThunderDM/src-wails3/commands.FileCommand.PickTorrentFile')) as T;
+        } catch {}
+        try {
+          return (await (Call as any).ByName('main.FileCommand.PickTorrentFile')) as T;
+        } catch {}
+        return '' as unknown as T;
+      }
       case 'get_default_download_dir':
       case 'get_default_download_directory':
         return (await FileCommand.GetDefaultDownloadDir()) as T;

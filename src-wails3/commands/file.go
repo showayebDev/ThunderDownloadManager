@@ -85,6 +85,18 @@ func (c *FileCommand) PickFolder() (string, error) {
 	return "", fmt.Errorf("app not initialized")
 }
 
+func (c *FileCommand) PickTorrentFile() (string, error) {
+	if application.Get() != nil {
+		dialog := application.Get().Dialog.OpenFile().
+			CanChooseDirectories(false).
+			CanChooseFiles(true).
+			SetTitle("Select .torrent File").
+			AddFilter("Torrent Files (*.torrent)", "*.torrent")
+		return dialog.PromptForSingleSelection()
+	}
+	return "", fmt.Errorf("app not initialized")
+}
+
 func (c *FileCommand) GetDefaultDownloadDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

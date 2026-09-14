@@ -45,8 +45,10 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 	log.Printf("[DownloadCommand] ProcessNewDownload started for URL: %s\n", rawUrl)
 
 	var filename string
-	isYTDLP := downloader.IsYTDLPURL(rawUrl)
-	isHLS := !isYTDLP && downloader.IsHLSURL(rawUrl)
+	var fileSize int64 = 0
+	isTorrent := downloader.IsTorrentURL(rawUrl) || downloader.IsTorrentFile(rawUrl)
+	isYTDLP := !isTorrent && downloader.IsYTDLPURL(rawUrl)
+	isHLS := !isTorrent && !isYTDLP && downloader.IsHLSURL(rawUrl)
 
 	// Extract basic filename from URL first
 	parsedUrl, err := url.Parse(rawUrl)
@@ -57,7 +59,30 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 		log.Printf("[DownloadCommand] Error parsing URL: %v\n", err)
 	}
 
-	if isYTDLP {
+	proto := "Auto"
+	category := ""
+
+	if isTorrent {
+		proto = "Torrent"
+		category = "Torrents"
+		if tInfo, err := downloader.ParseTorrentInfo(rawUrl); err == nil && tInfo != nil {
+			if tInfo.Name != "" {
+				filename = tInfo.Name
+			}
+			if tInfo.TotalSize > 0 {
+				fileSize = tInfo.TotalSize
+			}
+		}
+		if filename == "" || filename == "/" || filename == "." || filename == "download" {
+			if parsedUrl != nil && parsedUrl.Query().Get("dn") != "" {
+				filename = parsedUrl.Query().Get("dn")
+			} else {
+				filename = "Torrent_Download"
+			}
+		}
+	} else if isYTDLP {
+		proto = "Yt-DLP"
+		category = "Videos"
 		if parsedUrl != nil {
 			if v := parsedUrl.Query().Get("v"); v != "" {
 				filename = v + ".mp4"
@@ -104,20 +129,17 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 
 	filename = downloader.SanitizeFilename(filename)
 
-	proto := "Auto"
-	category := ""
-	if isYTDLP {
-		proto = "Yt-DLP"
-		category = "Videos"
-	} else if isHLS {
-		proto = "HLS"
-		category = "Videos"
-	} else {
-		cat := detectCategoryByExt(filename)
-		if cat != "Other" && cat != "" {
-			category = cat
+	if !isTorrent && !isYTDLP {
+		if isHLS {
+			proto = "HLS"
+			category = "Videos"
 		} else {
-			category = "Documents"
+			cat := detectCategoryByExt(filename)
+			if cat != "Other" && cat != "" {
+				category = cat
+			} else {
+				category = "Documents"
+			}
 		}
 	}
 
@@ -141,7 +163,7 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 	payload := map[string]interface{}{
 		"url":                  rawUrl,
 		"filename":             filename,
-		"fileSize":             int64(0),
+		"fileSize":             fileSize,
 		"mimeType":             "",
 		"protocol":             proto,
 		"category":             category,
@@ -290,6 +312,8 @@ type RemoteFileInfo struct {
 	Duration       float64             `json:"duration"`
 	IsYTDLP        bool                `json:"is_ytdlp"`
 	YTDLPInstalled bool                `json:"ytdlp_installed"`
+	IsTorrent      bool                `json:"is_torrent,omitempty"`
+	TorrentFiles   []string            `json:"torrent_files,omitempty"`
 	Formats        []downloader.Format `json:"formats,omitempty"`
 }
 
@@ -356,6 +380,7 @@ var mimeToExtMap = map[string]string{
 	"text/html":                                                               ".html",
 	"application/json":                                                        ".json",
 	"application/xml":                                                         ".xml",
+	"application/x-bittorrent":                                                ".torrent",
 }
 
 func extractFilenameHarder(resp *http.Response, targetURL string, contentType string) string {
@@ -536,6 +561,34 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 		}
 		if opts.Cookies != "" {
 			r.Header.Set("Cookie", opts.Cookies)
+		}
+	}
+
+	// Handle Torrent and Magnet URLs
+	if downloader.IsTorrentURL(cleanURL) || downloader.IsTorrentFile(cleanURL) {
+		tInfo, err := downloader.ParseTorrentInfo(cleanURL)
+		if err == nil && tInfo != nil {
+			fname := downloader.SanitizeFilename(tInfo.Name)
+			formatted := "Magnet Link (BitTorrent)"
+			if tInfo.TotalSize > 0 {
+				formatted = formatBytesHuman(tInfo.TotalSize)
+			}
+			ctype := "application/x-bittorrent"
+			var clen *int64
+			if tInfo.TotalSize > 0 {
+				sz := tInfo.TotalSize
+				clen = &sz
+			}
+			return &RemoteFileInfo{
+				Filename:      &fname,
+				Title:         &tInfo.Name,
+				ContentLength: clen,
+				FormattedSize: formatted,
+				AcceptRanges:  true,
+				ContentType:   &ctype,
+				IsTorrent:     true,
+				TorrentFiles:  tInfo.Files,
+			}, nil
 		}
 	}
 
@@ -819,6 +872,8 @@ func detectCategoryByExt(filename string) string {
 		return "Pictures"
 	case "pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "txt", "csv", "srt", "sub", "nfo":
 		return "Documents"
+	case "torrent":
+		return "Torrents"
 	default:
 		return "Other"
 	}
