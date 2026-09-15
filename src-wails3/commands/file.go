@@ -51,11 +51,12 @@ func (c *FileCommand) DeleteFile(path string) error {
 	if err != nil && !os.IsNotExist(err) {
 		_ = os.RemoveAll(path)
 	}
-	// Also clean up any associated partial files (.thunderdm, .merging, .part, .ytdl)
+	// Also clean up any associated partial files (.thunderdm, .merging, .part, .ytdl, .torrent.bolt.db)
 	_ = os.Remove(path + ".thunderdm")
 	_ = os.Remove(path + ".merging")
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
+	_ = os.Remove(filepath.Join(dir, ".torrent.bolt.db"))
 	downloader.CleanYTDLPTempFiles(dir, base)
 	return nil
 }
@@ -217,6 +218,13 @@ func (c *FileCommand) CheckFilesExistCommand(args CheckFilesExistArgs) (map[stri
 				exists = true
 			}
 		}
+		if !exists {
+			if fuzzyPath := utils.ResolveExistingFilePath(cleanPath); fuzzyPath != "" && fuzzyPath != cleanPath {
+				if _, err := os.Stat(fuzzyPath); err == nil {
+					exists = true
+				}
+			}
+		}
 		result[p] = exists
 	}
 	return result, nil
@@ -233,16 +241,37 @@ func (c *FileCommand) CheckFilesInfoCommand(args CheckFilesExistArgs) (map[strin
 
 		var fi os.FileInfo
 		var err error
-		if fi, err = os.Stat(cleanPath); err != nil || fi.IsDir() {
-			if resolvedPath != "" && resolvedPath != cleanPath {
-				fi, err = os.Stat(resolvedPath)
+		var finalPath string
+
+		if fi, err = os.Stat(cleanPath); err == nil {
+			finalPath = cleanPath
+		} else if resolvedPath != "" && resolvedPath != cleanPath {
+			if fi, err = os.Stat(resolvedPath); err == nil {
+				finalPath = resolvedPath
 			}
 		}
 
-		if err == nil && fi != nil && !fi.IsDir() {
+		if err != nil || fi == nil {
+			fuzzyPath := utils.ResolveExistingFilePath(cleanPath)
+			if fuzzyPath != "" && fuzzyPath != cleanPath {
+				if fiFuzzy, errFuzzy := os.Stat(fuzzyPath); errFuzzy == nil {
+					fi = fiFuzzy
+					err = nil
+					finalPath = fuzzyPath
+				}
+			}
+		}
+
+		if err == nil && fi != nil {
+			var size int64
+			if fi.IsDir() {
+				size = utils.GetDirSize(finalPath)
+			} else {
+				size = fi.Size()
+			}
 			result[p] = FileStatInfo{
 				Exists: true,
-				Size:   fi.Size(),
+				Size:   size,
 			}
 		} else {
 			result[p] = FileStatInfo{

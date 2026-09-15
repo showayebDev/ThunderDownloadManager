@@ -160,7 +160,7 @@ const defaultQueues: QueueConfig[] = [
 const sanitizeDownloadItem = (item: DownloadItem): DownloadItem => {
   const detected = detectCategory(item.name || item.url, item.protocol);
   let cat = item.category;
-  if (!cat || cat === 'All' || ((cat === 'Programs' || cat === 'Documents') && (detected === 'Videos' || detected === 'Torrents'))) {
+  if (!cat || cat === 'All' || ((cat === 'Programs' || cat === 'Documents') && (detected === 'Videos' || detected === 'Torrents' || detected === 'Compressed'))) {
     cat = detected;
   }
 
@@ -380,23 +380,68 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       currentDownloads.forEach((d) => {
         if (!d.name) return;
         const candidatePaths: string[] = [];
+        const seen = new Set<string>();
+
+        const addCandidate = (p: string) => {
+          if (!p) return;
+          const normalized = p.trim();
+          if (!seen.has(normalized)) {
+            seen.add(normalized);
+            candidatePaths.push(normalized);
+          }
+        };
+
+        const customCatPath = (d.category && d.category !== 'All' && globalSettingsRef.current?.categoryPaths)
+          ? globalSettingsRef.current.categoryPaths[d.category]
+          : undefined;
 
         if (d.savePath) {
           const isWin = d.savePath.includes('\\') || (!d.savePath.includes('/') && /^[a-zA-Z]:/.test(d.savePath));
           const sep = isWin ? '\\' : '/';
           const cleanBase = d.savePath.replace(/[\/\\]+$/, '');
-          candidatePaths.push(`${cleanBase}${sep}${d.name}`);
+          addCandidate(`${cleanBase}${sep}${d.name}`);
+
+          // If category is set, also check inside category subfolder or parent folder
+          if (d.category && d.category !== 'All') {
+            const lowerBase = cleanBase.toLowerCase();
+            const lowerCat = d.category.toLowerCase();
+            if (!lowerBase.endsWith(lowerCat) && !lowerBase.endsWith(`${sep}${lowerCat}`)) {
+              addCandidate(`${cleanBase}${sep}${d.category}${sep}${d.name}`);
+            } else {
+              const parentDir = cleanBase.replace(/[\/\\][^\/\\]+$/, '');
+              if (parentDir && parentDir !== cleanBase) {
+                addCandidate(`${parentDir}${sep}${d.name}`);
+              }
+            }
+          }
+
+          if (customCatPath) {
+            const isWinCat = customCatPath.includes('\\') || (!customCatPath.includes('/') && /^[a-zA-Z]:/.test(customCatPath));
+            const sepCat = isWinCat ? '\\' : '/';
+            addCandidate(`${customCatPath.replace(/[\/\\]+$/, '')}${sepCat}${d.name}`);
+          }
 
           const isRelative = !d.savePath.includes(':') && !d.savePath.startsWith('/') && !d.savePath.startsWith('\\\\');
           if (isRelative && cleanDefaultBase) {
-            candidatePaths.push(`${cleanDefaultBase}${defaultSep}${cleanBase}${defaultSep}${d.name}`);
-            candidatePaths.push(`${cleanDefaultBase}${defaultSep}${d.name}`);
+            addCandidate(`${cleanDefaultBase}${defaultSep}${cleanBase}${defaultSep}${d.name}`);
+            addCandidate(`${cleanDefaultBase}${defaultSep}${d.name}`);
+            if (d.category && d.category !== 'All') {
+              addCandidate(`${cleanDefaultBase}${defaultSep}${d.category}${defaultSep}${d.name}`);
+            }
           }
-        } else if (cleanDefaultBase) {
+        }
+
+        if (customCatPath) {
+          const isWinCat = customCatPath.includes('\\') || (!customCatPath.includes('/') && /^[a-zA-Z]:/.test(customCatPath));
+          const sepCat = isWinCat ? '\\' : '/';
+          addCandidate(`${customCatPath.replace(/[\/\\]+$/, '')}${sepCat}${d.name}`);
+        }
+
+        if (cleanDefaultBase) {
           if (d.category && d.category !== 'All') {
-            candidatePaths.push(`${cleanDefaultBase}${defaultSep}${d.category}${defaultSep}${d.name}`);
+            addCandidate(`${cleanDefaultBase}${defaultSep}${d.category}${defaultSep}${d.name}`);
           }
-          candidatePaths.push(`${cleanDefaultBase}${defaultSep}${d.name}`);
+          addCandidate(`${cleanDefaultBase}${defaultSep}${d.name}`);
         }
 
         candidatePaths.forEach((p) => {
@@ -439,12 +484,30 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               if (!foundStat) return d;
 
               let healedSavePath = d.savePath;
+              let healedName = d.name;
+              let healedCategory = d.category;
               if (foundStat.exists && foundPath) {
-                const isRel = !d.savePath || (!d.savePath.includes(':') && !d.savePath.startsWith('/') && !d.savePath.startsWith('\\\\'));
-                if (isRel) {
-                  const dir = foundPath.replace(/[\/\\][^\/\\]+$/, '');
-                  if (dir && dir !== d.savePath) {
-                    healedSavePath = dir;
+                const dir = foundPath.replace(/[\/\\][^\/\\]+$/, '');
+                if (dir && (!d.savePath || dir !== d.savePath)) {
+                  healedSavePath = dir;
+                  hasSavePathFix = true;
+                }
+                const filenameOnDisk = foundPath.split(/[\/\\]/).filter(Boolean).pop();
+                if (filenameOnDisk && filenameOnDisk !== d.name) {
+                  if (!d.name.includes('.') && filenameOnDisk.includes('.')) {
+                    healedName = filenameOnDisk;
+                    hasSavePathFix = true;
+                  }
+                }
+                if (d.protocol === 'Torrent') {
+                  if (healedCategory !== 'Torrents') {
+                    healedCategory = 'Torrents';
+                    hasSavePathFix = true;
+                  }
+                } else if (healedCategory === 'Documents' || !healedCategory || healedCategory === 'All') {
+                  const detected = detectCategory(healedName || d.url, d.protocol);
+                  if (detected && detected !== 'Documents') {
+                    healedCategory = detected;
                     hasSavePathFix = true;
                   }
                 }
@@ -452,9 +515,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
               if (d.status === 'Finished') {
                 const isMissing = !foundStat.exists;
-                if (d.fileMissing !== isMissing || d.savePath !== healedSavePath) {
+                if (d.fileMissing !== isMissing || d.savePath !== healedSavePath || d.name !== healedName || d.category !== healedCategory) {
                   changed = true;
-                  return { ...d, fileMissing: isMissing, savePath: healedSavePath };
+                  return { ...d, fileMissing: isMissing, savePath: healedSavePath, name: healedName, category: healedCategory };
                 }
               } else if (foundStat.exists && foundStat.size > 0 && (d.status === 'Downloading' || d.status === 'Pending' || d.status === 'Paused' || d.status === 'Error')) {
                 // If file is already fully completed on disk
@@ -463,7 +526,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                   changed = true;
                   return {
                     ...d,
+                    name: healedName,
                     savePath: healedSavePath,
+                    category: healedCategory,
                     status: 'Finished' as DownloadStatus,
                     downloaded: foundStat.size,
                     size: finalSize,
@@ -475,9 +540,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                   };
                 }
               }
-              if (d.savePath !== healedSavePath) {
+              if (d.savePath !== healedSavePath || d.name !== healedName || d.category !== healedCategory) {
                 changed = true;
-                return { ...d, savePath: healedSavePath };
+                return { ...d, savePath: healedSavePath, name: healedName, category: healedCategory };
               }
               return d;
             });
@@ -689,8 +754,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             : (d.size || 0);
 
           const updatedFilename = payload.filename || d.name;
-          const detectedCat = detectCategory(updatedFilename || d.url);
-          const updatedCat = (d.category && d.category !== 'All' && !((d.category === 'Programs' || d.category === 'Documents') && detectedCat === 'Videos'))
+          const detectedCat = detectCategory(updatedFilename || d.url, d.protocol);
+          const updatedCat = (d.category && d.category !== 'All' && !((d.category === 'Programs' || d.category === 'Documents') && (detectedCat === 'Videos' || detectedCat === 'Torrents' || detectedCat === 'Compressed')))
             ? d.category
             : detectedCat;
 
@@ -724,6 +789,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             d.status === finalStatus &&
             d.timeLeft === finalTimeLeft &&
             d.resumeSupport === updatedResumeSupport &&
+            (finalStatus !== 'Finished' || !d.fileMissing) &&
             (payload.chunks === undefined || payload.chunks === null);
 
           if (isItemUnchanged) {
@@ -741,6 +807,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             speed: finalSpeed,
             status: finalStatus,
             timeLeft: finalTimeLeft,
+            fileMissing: finalStatus === 'Finished' ? false : d.fileMissing,
+            savePath: payload.save_path || payload.savePath || d.savePath,
             resumeSupport: updatedResumeSupport,
             threadCount: (payload.thread_count && payload.thread_count > 0) ? payload.thread_count : ((payload as any).threadCount || d.threadCount || 8),
             speedLimit: payload.speed_limit !== undefined ? payload.speed_limit : d.speedLimit,
@@ -867,9 +935,10 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             return;
           }
           const filename = payload.filename || payload.url.split('/').pop() || 'download';
-          const cat = (payload.category && payload.category !== 'All')
+          const detected = detectCategory(filename || payload.url, payload.protocol);
+          const cat = (payload.category && payload.category !== 'All' && !(payload.category === 'Documents' && detected !== 'Documents'))
             ? payload.category
-            : detectCategory(filename || payload.url);
+            : detected;
 
           let targetSave = payload.save_path || globalSettingsRef.current.downloadPath || defaultSettings.downloadPath;
           const isRel = !targetSave || (!targetSave.includes(':') && !targetSave.startsWith('/') && !targetSave.startsWith('\\\\'));
@@ -1008,12 +1077,14 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   ) => {
     const id = Date.now().toString();
     let filename = name || url.split('/').pop() || 'download';
+    const isTorrent = (options?.protocol === 'Torrent') || url.toLowerCase().startsWith('magnet:') || url.toLowerCase().endsWith('.torrent');
     const isHLS = url.toLowerCase().includes('.m3u8') || filename.toLowerCase().endsWith('.m3u8');
     if (isHLS && filename.toLowerCase().endsWith('.m3u8')) {
       const base = filename.replace(/\.m3u8$/i, '');
       filename = (base === '' || base === 'master' || base === 'playlist' || base === 'index') ? 'video.mp4' : `${base}.mp4`;
     }
-    const cat = isHLS ? 'Videos' : ((category && category !== 'All') ? category : detectCategory(filename || url));
+    const detected = detectCategory(filename || url, options?.protocol || (isTorrent ? 'Torrent' : undefined));
+    const cat = isTorrent ? 'Torrents' : (isHLS ? 'Videos' : ((category && category !== 'All' && !(category === 'Documents' && detected !== 'Documents')) ? category : detected));
     
     const isWin = globalSettings.downloadPath.includes('\\') || (!globalSettings.downloadPath.includes('/') && /^[a-zA-Z]:/.test(globalSettings.downloadPath));
     const sep = isWin ? '\\' : '/';

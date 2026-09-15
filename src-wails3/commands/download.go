@@ -881,21 +881,25 @@ func detectCategoryByExt(filename string) string {
 		ext = strings.TrimPrefix(ext, ".")
 	}
 	switch ext {
-	case "mp4", "mkv", "avi", "mov", "webm", "ts", "m4v", "flv", "m3u8":
+	case "mp4", "mkv", "avi", "mov", "webm", "ts", "m4v", "flv", "m3u8", "3gp", "wmv", "mpg", "mpeg", "vob", "ogv":
 		return "Videos"
-	case "zip", "rar", "7z", "tar", "gz", "iso", "bz2", "xz":
+	case "zip", "rar", "7z", "tar", "gz", "iso", "bz2", "xz", "tgz", "zipx", "7zip", "zst", "lzma", "cab", "arj", "lzh", "ace", "uue", "bz", "tbz", "tbz2", "txz", "wim", "r00", "r01", "r02", "part1":
 		return "Compressed"
-	case "exe", "msi", "dmg", "deb", "rpm", "apk", "bin":
+	case "exe", "msi", "dmg", "deb", "rpm", "apk", "bin", "app", "bat", "cmd", "sh", "jar", "run", "appimage", "pkg":
 		return "Programs"
-	case "mp3", "flac", "wav", "aac", "ogg", "m4a", "opus":
+	case "mp3", "flac", "wav", "aac", "ogg", "m4a", "opus", "wma", "alac", "aiff", "mid", "midi", "mka", "ape":
 		return "Music"
-	case "png", "jpg", "jpeg", "webp", "gif", "svg", "bmp":
+	case "png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "ico", "tiff", "avif", "heic", "psd", "ai", "raw", "cr2", "nef":
 		return "Pictures"
-	case "pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "txt", "csv", "srt", "sub", "nfo":
+	case "pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "txt", "csv", "srt", "sub", "nfo", "md", "epub", "rtf", "odt", "ods", "odp", "pages", "numbers", "key", "vtt", "log":
 		return "Documents"
 	case "torrent":
 		return "Torrents"
 	default:
+		lower := strings.ToLower(filename)
+		if strings.Contains(lower, ".rar") || strings.Contains(lower, ".zip") || strings.Contains(lower, ".7z") || strings.Contains(lower, ".tar.gz") {
+			return "Compressed"
+		}
 		return "Other"
 	}
 }
