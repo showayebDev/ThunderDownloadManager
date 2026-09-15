@@ -88,15 +88,15 @@ func (c *TorrentTaskController) Start() {
 		rawSource = CleanTorrentSource(c.url)
 	}
 
+	var spec *torrent.TorrentSpec
+
 	if strings.HasPrefix(strings.ToLower(rawSource), "magnet:") {
-		spec, err := torrent.TorrentSpecFromMagnetUri(rawSource)
+		s, err := torrent.TorrentSpecFromMagnetUri(rawSource)
 		if err != nil {
 			c.failTask(fmt.Sprintf("Invalid magnet URI: %v", err))
 			return
 		}
-		spec.Storage = NewThunderTorrentStorage(saveDir)
-		spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
-		t, _, addErr = client.AddTorrentSpec(spec)
+		spec = s
 	} else if strings.HasPrefix(strings.ToLower(rawSource), "http://") || strings.HasPrefix(strings.ToLower(rawSource), "https://") {
 		// Download remote .torrent to temporary file first
 		tempPath, err := DownloadTorrentFileToTemp(rawSource)
@@ -109,10 +109,7 @@ func (c *TorrentTaskController) Start() {
 			c.failTask(fmt.Sprintf("Failed to parse .torrent metadata: %v", err))
 			return
 		}
-		spec := torrent.TorrentSpecFromMetaInfo(mi)
-		spec.Storage = NewThunderTorrentStorage(saveDir)
-		spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
-		t, _, addErr = client.AddTorrentSpec(spec)
+		spec = torrent.TorrentSpecFromMetaInfo(mi)
 	} else {
 		// Local .torrent file
 		cleanPath := rawSource
@@ -121,11 +118,22 @@ func (c *TorrentTaskController) Start() {
 			c.failTask(fmt.Sprintf("Failed to read torrent file: %v", err))
 			return
 		}
-		spec := torrent.TorrentSpecFromMetaInfo(mi)
-		spec.Storage = NewThunderTorrentStorage(saveDir)
-		spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
-		t, _, addErr = client.AddTorrentSpec(spec)
+		spec = torrent.TorrentSpecFromMetaInfo(mi)
 	}
+
+	if spec == nil {
+		c.failTask("Failed to parse torrent specifications")
+		return
+	}
+
+	// If a previous metadata probe or task left this torrent in the global client, drop it first so it uses the real saveDir storage
+	if existing, ok := client.Torrent(spec.InfoHash); ok && existing != nil {
+		existing.Drop()
+	}
+
+	spec.Storage = NewThunderTorrentStorage(saveDir)
+	spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
+	t, _, addErr = client.AddTorrentSpec(spec)
 
 	if addErr != nil || t == nil {
 		c.failTask(fmt.Sprintf("Failed to add torrent to download client: %v", addErr))
@@ -135,6 +143,13 @@ func (c *TorrentTaskController) Start() {
 	// Tell client to start peer search and piece download if metadata is already available
 	t.AddTrackers(DefaultPublicTrackers)
 	if t.Info() != nil {
+		c.mu.Lock()
+		if t.Name() != "" {
+			c.filename = SanitizeFilename(t.Name())
+		}
+		c.totalSize = t.Length()
+		c.mu.Unlock()
+		_ = storage.UpdateDownloadMetadata(c.id, c.filename, c.totalSize)
 		t.DownloadAll()
 	}
 
@@ -152,10 +167,8 @@ func (c *TorrentTaskController) Start() {
 			info := t.Info()
 			if info != nil {
 				c.mu.Lock()
-				if c.filename == "" || c.filename == "download" || strings.HasSuffix(c.filename, ".torrent") || strings.HasPrefix(c.filename, "Torrent_") {
-					if t.Name() != "" {
-						c.filename = SanitizeFilename(t.Name())
-					}
+				if t.Name() != "" {
+					c.filename = SanitizeFilename(t.Name())
 				}
 				c.totalSize = t.Length()
 				c.mu.Unlock()

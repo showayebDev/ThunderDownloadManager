@@ -176,13 +176,15 @@ export const DownloadStartConfirmation: React.FC = () => {
       return extensionPayload.savePath || extensionPayload.save_path;
     }
     const base = getInitialBasePath();
-    const cat =
-      extensionPayload?.category ||
-      (initialName
-        ? utilDetectCategory(initialName)
-        : initialUrl
-        ? utilDetectCategory(initialUrl)
-        : '');
+    const lower = (initialUrl || '').toLowerCase();
+    let cat = extensionPayload?.category;
+    if (!cat) {
+      if (lower.startsWith('magnet:') || lower.endsWith('.torrent') || lower.includes('.torrent?') || lower.includes('.torrent#')) {
+        cat = 'Torrents';
+      } else {
+        cat = initialName ? utilDetectCategory(initialName) : (initialUrl ? utilDetectCategory(initialUrl) : '');
+      }
+    }
     return cat ? joinPath(base, cat) : base;
   });
   const [queue, setQueue] = useState<string>('');
@@ -414,7 +416,29 @@ export const DownloadStartConfirmation: React.FC = () => {
           setUseCategory(isUcb);
 
           const base = payload.basePath || defaultBasePath || getInitialBasePath();
-          const payloadCat = payload.category || (payload.filename ? utilDetectCategory(payload.filename) : (payload.url ? utilDetectCategory(payload.url) : ''));
+          const lowerUrl = (payload.url || '').toLowerCase();
+          const isTorrentPayload =
+            payload.protocol === 'Torrent' ||
+            lowerUrl.startsWith('magnet:') ||
+            lowerUrl.endsWith('.torrent') ||
+            lowerUrl.includes('.torrent?') ||
+            lowerUrl.includes('.torrent#');
+          const isYtPayload =
+            payload.protocol?.startsWith('Yt-DLP') || payload.protocol?.startsWith('YT-DLP');
+          const isHlsPayload = payload.protocol === 'HLS';
+
+          let payloadCat = payload.category;
+          if (isTorrentPayload) {
+            payloadCat = 'Torrents';
+          } else if (isYtPayload || isHlsPayload) {
+            payloadCat = 'Videos';
+          } else if (!payloadCat || payloadCat === 'Documents') {
+            if (payload.filename) {
+              payloadCat = utilDetectCategory(payload.filename, payload.protocol);
+            } else if (payload.url) {
+              payloadCat = utilDetectCategory(payload.url, payload.protocol);
+            }
+          }
           if (payloadCat) {
             setCategory(payloadCat);
           }
@@ -935,10 +959,23 @@ export const DownloadStartConfirmation: React.FC = () => {
         if (info.ytdlp_installed !== undefined) {
           setIsYtdlpInstalled(Boolean(info.ytdlp_installed));
         }
-        const detectedCat =
-          info.is_ytdlp || info.is_hls
-            ? 'Videos'
-            : (category && category !== 'All' && category !== 'None' ? category : utilDetectCategory(info.filename));
+        let detectedCat = '';
+        if (info.is_torrent || protocol === 'Torrent') {
+          detectedCat = 'Torrents';
+          setProtocol('Torrent');
+        } else if (info.is_ytdlp || protocol === 'Yt-DLP') {
+          detectedCat = 'Videos';
+          setProtocol('Yt-DLP');
+          if (Array.isArray(info.formats) && info.formats.length > 0) {
+            setAvailableFormats(info.formats);
+          }
+        } else if (info.is_hls || protocol === 'HLS') {
+          detectedCat = 'Videos';
+          setProtocol('HLS');
+        } else {
+          detectedCat = utilDetectCategory(info.filename || activeUrl, protocol);
+        }
+
         if (detectedCat) {
           setCategory(detectedCat);
         }
@@ -964,19 +1001,6 @@ export const DownloadStartConfirmation: React.FC = () => {
           .catch(() => {
             setName(info.filename);
           });
-        if (info.is_torrent) {
-          setProtocol('Torrent');
-          setCategory('Torrents');
-        } else if (info.is_ytdlp) {
-          setProtocol('Yt-DLP');
-          setCategory('Videos');
-          if (Array.isArray(info.formats) && info.formats.length > 0) {
-            setAvailableFormats(info.formats);
-          }
-        } else if (info.is_hls) {
-          setProtocol('HLS');
-          setCategory('Videos');
-        }
       } else {
         setFileSizeText('Unknown');
         setFileFetched(false);
@@ -1038,6 +1062,24 @@ export const DownloadStartConfirmation: React.FC = () => {
       if (!finalName.includes('.')) finalName += '.mp4';
     }
 
+    const isTorrent =
+      protocol === 'Torrent' ||
+      lowerUrl.startsWith('magnet:') ||
+      lowerUrl.endsWith('.torrent') ||
+      lowerUrl.includes('.torrent?') ||
+      lowerUrl.includes('.torrent#');
+    const isYTDLP = protocol === 'Yt-DLP';
+    const isHLS = protocol === 'HLS';
+
+    const resolvedCat =
+      isTorrent
+        ? 'Torrents'
+        : isYTDLP || isHLS
+        ? 'Videos'
+        : category && category !== 'All' && category !== 'None'
+        ? category
+        : utilDetectCategory(finalName || url, protocol);
+
     let finalSavePath = (savePath || '').trim();
     let currentBase = defaultBasePath || globalSettings?.downloadPath || '';
     if (!currentBase) {
@@ -1045,9 +1087,14 @@ export const DownloadStartConfirmation: React.FC = () => {
         currentBase = (await invoke<string>('get_default_download_dir')) || '';
       } catch {}
     }
-    const isRel = !finalSavePath || (!finalSavePath.includes(':') && !finalSavePath.startsWith('/') && !finalSavePath.startsWith('\\\\'));
-    if (isRel && currentBase) {
-      finalSavePath = finalSavePath ? joinPath(currentBase, finalSavePath) : currentBase;
+    if (!isCustomPath && useCategory && resolvedCat && resolvedCat !== 'All' && resolvedCat !== 'None') {
+      const customCatPath = categoryPaths[resolvedCat];
+      finalSavePath = customCatPath || joinPath(currentBase, resolvedCat);
+    } else {
+      const isRel = !finalSavePath || (!finalSavePath.includes(':') && !finalSavePath.startsWith('/') && !finalSavePath.startsWith('\\\\'));
+      if (isRel && currentBase) {
+        finalSavePath = finalSavePath ? joinPath(currentBase, finalSavePath) : currentBase;
+      }
     }
 
     try {
@@ -1069,8 +1116,6 @@ export const DownloadStartConfirmation: React.FC = () => {
     const rawChecksum = (checksumVal || '').trim();
     const givenCheckSum =
       (checksumEnabled || rawChecksum !== '') && rawChecksum !== '' ? rawChecksum : '';
-    const resolvedCat =
-      category && category !== 'All' ? category : detectCategory(finalName || url);
     const calculatedLimit = getSpeedLimitInBytes();
 
     let baseList: any[] = [];
@@ -1308,6 +1353,24 @@ export const DownloadStartConfirmation: React.FC = () => {
       if (!finalName.includes('.')) finalName += '.mp4';
     }
 
+    const isTorrent =
+      protocol === 'Torrent' ||
+      lowerUrl.startsWith('magnet:') ||
+      lowerUrl.endsWith('.torrent') ||
+      lowerUrl.includes('.torrent?') ||
+      lowerUrl.includes('.torrent#');
+    const isYTDLP = protocol === 'Yt-DLP';
+    const isHLS = protocol === 'HLS';
+
+    const resolvedCat =
+      isTorrent
+        ? 'Torrents'
+        : isYTDLP || isHLS
+        ? 'Videos'
+        : category && category !== 'All' && category !== 'None'
+        ? category
+        : utilDetectCategory(finalName || url, protocol);
+
     let finalSavePath = (savePath || '').trim();
     let currentBase = defaultBasePath || globalSettings?.downloadPath || '';
     if (!currentBase) {
@@ -1315,9 +1378,14 @@ export const DownloadStartConfirmation: React.FC = () => {
         currentBase = (await invoke<string>('get_default_download_dir')) || '';
       } catch {}
     }
-    const isRel = !finalSavePath || (!finalSavePath.includes(':') && !finalSavePath.startsWith('/') && !finalSavePath.startsWith('\\\\'));
-    if (isRel && currentBase) {
-      finalSavePath = finalSavePath ? joinPath(currentBase, finalSavePath) : currentBase;
+    if (!isCustomPath && useCategory && resolvedCat && resolvedCat !== 'All' && resolvedCat !== 'None') {
+      const customCatPath = categoryPaths[resolvedCat];
+      finalSavePath = customCatPath || joinPath(currentBase, resolvedCat);
+    } else {
+      const isRel = !finalSavePath || (!finalSavePath.includes(':') && !finalSavePath.startsWith('/') && !finalSavePath.startsWith('\\\\'));
+      if (isRel && currentBase) {
+        finalSavePath = finalSavePath ? joinPath(currentBase, finalSavePath) : currentBase;
+      }
     }
 
     try {
@@ -1339,8 +1407,6 @@ export const DownloadStartConfirmation: React.FC = () => {
     const rawChecksum = (checksumVal || '').trim();
     const givenCheckSum =
       (checksumEnabled || rawChecksum !== '') && rawChecksum !== '' ? rawChecksum : '';
-    const resolvedCat =
-      category && category !== 'All' ? category : detectCategory(finalName || url);
     const calculatedLimit = getSpeedLimitInBytes();
     const matchedVault = matchVaultCredentials(url.trim(), vaultList);
 

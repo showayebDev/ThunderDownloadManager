@@ -211,6 +211,8 @@ func ParseTorrentInfo(source string) (*TorrentInfo, error) {
 						info.Files = append(info.Files, f.DisplayPath())
 					}
 				}
+				// Always drop probe torrent so it does not lock the infohash with temporary storage
+				t.Drop()
 			}
 		}
 
