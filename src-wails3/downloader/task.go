@@ -994,7 +994,7 @@ func (tc *TaskController) emitCurrentProgress() {
 		}
 		totalDownloaded += dl
 		chunkPayloads = append(chunkPayloads, ChunkPayload{
-			ID:         id,
+			ID:         id + 1,
 			Status:     st,
 			Downloaded: dl,
 			Total:      total,
@@ -1113,7 +1113,7 @@ func (tc *TaskController) progressEmitter() {
 				}
 				totalDownloaded += dl
 				chunkPayloads = append(chunkPayloads, ChunkPayload{
-					ID:         id,
+					ID:         id + 1,
 					Status:     st,
 					Downloaded: dl,
 					Total:      total,
@@ -1506,7 +1506,7 @@ func (tc *TaskController) GetState() map[string]interface{} {
 		}
 		totalDownloaded += dl
 		chunkPayloads = append(chunkPayloads, ChunkPayload{
-			ID:         id,
+			ID:         id + 1,
 			Status:     st,
 			Downloaded: dl,
 			Total:      total,

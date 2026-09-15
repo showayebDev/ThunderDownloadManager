@@ -1271,7 +1271,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
                         return (
                           <div
                             key={c.id !== undefined ? c.id : i}
-                            title={`Segment #${c.id !== undefined ? c.id + 1 : i + 1}: ${segPercent.toFixed(1)}% (${formatBytes(c.downloaded)} / ${formatBytes(c.total)}) - ${isPaused ? 'Paused' : c.status || status}`}
+                            title={`Segment #${i + 1}: ${segPercent.toFixed(1)}% (${formatBytes(c.downloaded)} / ${formatBytes(c.total)}) - ${isPaused ? 'Paused' : c.status || status}`}
                             className={`flex-1 h-full relative bg-transparent overflow-hidden ${
                               !isLast ? 'border-r border-border' : ''
                             }`}
@@ -1337,7 +1337,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
                             className="hover:bg-accent/40 transition-colors"
                           >
                             <td className="py-1.5 px-2 text-muted-foreground truncate">
-                              {chunk.id !== undefined ? chunk.id : index + 1}
+                              {index + 1}
                             </td>
                             <td className="py-1.5 px-2 truncate">
                               <span
