@@ -113,3 +113,24 @@ func TestNewTorrentTaskController_NilContext(t *testing.T) {
 	}
 }
 
+func TestNewThunderTorrentStorage(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "thunder_test_download_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	storage := NewThunderTorrentStorage(tempDir)
+	if storage == nil {
+		t.Fatal("expected non-nil storage instance")
+	}
+	_ = storage.Close()
+
+	// Verify .torrent.bolt.db was NOT created in the user's download directory
+	boltInDownloadDir := filepath.Join(tempDir, ".torrent.bolt.db")
+	if _, err := os.Stat(boltInDownloadDir); err == nil {
+		t.Errorf("found unwanted .torrent.bolt.db inside user download directory: %s", boltInDownloadDir)
+	}
+}
+
+

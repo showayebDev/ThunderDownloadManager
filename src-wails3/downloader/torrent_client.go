@@ -15,6 +15,7 @@ import (
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
+	torstorage "github.com/anacrolix/torrent/storage"
 )
 
 // TorrentInfo stores extracted metadata from a magnet link or .torrent file.
@@ -48,10 +49,68 @@ var DefaultPublicTrackers = [][]string{
 }
 
 var (
-	globalTorrentClient *torrent.Client
-	torrentClientOnce   sync.Once
-	torrentClientMu     sync.Mutex
+	globalTorrentClient   *torrent.Client
+	torrentClientOnce     sync.Once
+	torrentClientMu       sync.Mutex
+	globalPieceCompletion torstorage.PieceCompletion
+	pieceCompletionOnce   sync.Once
+	pieceCompletionMu     sync.Mutex
 )
+
+type unclosedPieceCompletion struct {
+	torstorage.PieceCompletion
+}
+
+func (u unclosedPieceCompletion) Close() error {
+	return nil
+}
+
+// GetGlobalTorrentPieceCompletion returns the shared BoltDB piece completion tracker located centrally in ~/.thunderdm/torrent_state.
+func GetGlobalTorrentPieceCompletion() torstorage.PieceCompletion {
+	pieceCompletionMu.Lock()
+	defer pieceCompletionMu.Unlock()
+
+	pieceCompletionOnce.Do(func() {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			globalPieceCompletion = torstorage.NewMapPieceCompletion()
+			return
+		}
+		stateDir := filepath.Join(home, ".thunderdm", "torrent_state")
+		_ = os.MkdirAll(stateDir, 0755)
+		pc, err := torstorage.NewBoltPieceCompletion(stateDir)
+		if err != nil {
+			log.Printf("[TorrentClient] Bolt piece completion init error: %v (falling back to in-memory)\n", err)
+			globalPieceCompletion = torstorage.NewMapPieceCompletion()
+			return
+		}
+		globalPieceCompletion = pc
+	})
+	return globalPieceCompletion
+}
+
+// CloseGlobalTorrentPieceCompletion flushes and closes the central piece completion database.
+func CloseGlobalTorrentPieceCompletion() {
+	pieceCompletionMu.Lock()
+	defer pieceCompletionMu.Unlock()
+	if globalPieceCompletion != nil {
+		_ = globalPieceCompletion.Close()
+		globalPieceCompletion = nil
+	}
+}
+
+// NewThunderTorrentStorage creates a file storage instance that downloads files to saveDir
+// but keeps internal piece completion state (.torrent.bolt.db) centrally inside ~/.thunderdm/torrent_state/.
+func NewThunderTorrentStorage(saveDir string) torstorage.ClientImplCloser {
+	pc := GetGlobalTorrentPieceCompletion()
+	if pc != nil {
+		return torstorage.NewFileOpts(torstorage.NewFileClientOpts{
+			ClientBaseDir:   saveDir,
+			PieceCompletion: unclosedPieceCompletion{PieceCompletion: pc},
+		})
+	}
+	return torstorage.NewFile(saveDir)
+}
 
 // GetGlobalTorrentClient returns or initializes the singleton BitTorrent client instance.
 func GetGlobalTorrentClient() (*torrent.Client, error) {
