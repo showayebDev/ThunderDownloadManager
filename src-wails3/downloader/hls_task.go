@@ -715,7 +715,7 @@ func (tc *HLSTaskController) progressEmitter() {
 				}
 
 				chunkPayloads = append(chunkPayloads, ChunkPayload{
-					ID:         i,
+					ID:         i + 1,
 					Status:     workerStatus,
 					Downloaded: workerDl,
 					Total:      workerTot,
@@ -834,7 +834,7 @@ func (tc *HLSTaskController) emitCurrentProgress() {
 		}
 
 		chunkPayloads = append(chunkPayloads, ChunkPayload{
-			ID:         i,
+			ID:         i + 1,
 			Status:     workerStatus,
 			Downloaded: workerDl,
 			Total:      workerTot,
