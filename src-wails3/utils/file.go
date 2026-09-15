@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	normalizeRegex = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F_\-\s\(\)\[\]·｜？：＂＜＞＊／＼]+`)
+	normalizeRegex = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F_\-\.\+\s\(\)\[\]·｜？：＂＜＞＊／＼]+`)
 	invalidChars   = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
 )
 
@@ -19,26 +19,39 @@ func cleanForMatching(s string) string {
 	return strings.TrimSpace(normalizeRegex.ReplaceAllString(s, " "))
 }
 
+// GetDirSize computes the total size in bytes of all regular files in a directory recursively.
+func GetDirSize(path string) int64 {
+	var total int64
+	_ = filepath.Walk(path, func(_ string, fi os.FileInfo, err error) error {
+		if err == nil && fi != nil && !fi.IsDir() {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total
+}
+
 // ResolveExistingFilePath verifies if path exists. If not, it searches the directory
-// for a file that was trimmed, sanitized, or saved with a slightly different name.
+// and category locations for a file or folder that was trimmed, sanitized, or saved with a slightly different name.
 func ResolveExistingFilePath(path string) string {
 	if path == "" {
 		return ""
 	}
 	cleanPath := filepath.Clean(path)
-	if fi, err := os.Stat(cleanPath); err == nil && !fi.IsDir() {
+	if _, err := os.Stat(cleanPath); err == nil {
 		return cleanPath
 	}
 
-	// If path is relative, try resolving against user's home Downloads folder
+	// If path is relative, try resolving against user's home Downloads folder and subcategories
 	if !filepath.IsAbs(cleanPath) {
-		if home, err := os.UserHomeDir(); err == nil {
-			cand := filepath.Join(home, "Downloads", cleanPath)
-			if fi, err := os.Stat(cand); err == nil && !fi.IsDir() {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			homeDownloads := filepath.Join(home, "Downloads")
+			cand := filepath.Join(homeDownloads, cleanPath)
+			if _, err := os.Stat(cand); err == nil {
 				return cand
 			}
 			if resolved := ResolveExistingFilePath(cand); resolved != cand && resolved != "" {
-				if fi, err := os.Stat(resolved); err == nil && !fi.IsDir() {
+				if _, err := os.Stat(resolved); err == nil {
 					return resolved
 				}
 			}
@@ -48,74 +61,109 @@ func ResolveExistingFilePath(path string) string {
 	dir := filepath.Dir(cleanPath)
 	filename := filepath.Base(cleanPath)
 
-	// If dir is relative or empty, try common user download locations
-	if dir == "." || dir == "" || !filepath.IsAbs(dir) {
-		if home, err := os.UserHomeDir(); err == nil {
-			defaultDirs := []string{
-				filepath.Join(home, "Downloads"),
-				filepath.Join(home, "Downloads", "Videos"),
-				filepath.Join(home, "Downloads", "Music"),
-				filepath.Join(home, "Downloads", "Programs"),
-				filepath.Join(home, "Downloads", "Documents"),
-				filepath.Join(home, "Downloads", "Compressed"),
-				filepath.Join(home, "Downloads", "Pictures"),
-			}
-			for _, d := range defaultDirs {
-				candidate := filepath.Join(d, filename)
-				if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
-					return candidate
-				}
-			}
-		}
-	}
+	standardCategories := []string{"Torrents", "Videos", "Music", "Programs", "Documents", "Compressed", "Pictures"}
 
 	// 1. Try directly sanitizing invalid Windows/Unix characters from filename
 	sanitizedName := invalidChars.ReplaceAllString(filename, "_")
 	for strings.Contains(sanitizedName, "__") {
 		sanitizedName = strings.ReplaceAll(sanitizedName, "__", "_")
 	}
-	sanitizedPath := filepath.Join(dir, sanitizedName)
-	if fi, err := os.Stat(sanitizedPath); err == nil && !fi.IsDir() {
-		return sanitizedPath
+
+	// Build comprehensive list of directories to search
+	var searchDirs []string
+	seenDirs := make(map[string]bool)
+	addDir := func(d string) {
+		if d == "" || d == "." {
+			return
+		}
+		clean := filepath.Clean(d)
+		if !seenDirs[strings.ToLower(clean)] {
+			seenDirs[strings.ToLower(clean)] = true
+			searchDirs = append(searchDirs, clean)
+		}
 	}
 
+	addDir(dir)
+
+	if filepath.IsAbs(dir) {
+		for _, cat := range standardCategories {
+			addDir(filepath.Join(dir, cat))
+		}
+		isCatSubdir := false
+		for _, cat := range standardCategories {
+			if strings.EqualFold(filepath.Base(dir), cat) {
+				isCatSubdir = true
+				break
+			}
+		}
+		if isCatSubdir {
+			parentDir := filepath.Dir(dir)
+			addDir(parentDir)
+			for _, cat := range standardCategories {
+				addDir(filepath.Join(parentDir, cat))
+			}
+		}
+	}
+
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		homeDownloads := filepath.Join(home, "Downloads")
+		addDir(homeDownloads)
+		for _, cat := range standardCategories {
+			addDir(filepath.Join(homeDownloads, cat))
+		}
+	}
+
+	// Step 1: Direct exact and sanitized candidate lookup across all candidate directories
+	for _, d := range searchDirs {
+		cand := filepath.Join(d, filename)
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+		if sanitizedName != filename {
+			candSan := filepath.Join(d, sanitizedName)
+			if _, err := os.Stat(candSan); err == nil {
+				return candSan
+			}
+		}
+	}
+
+	// Step 2: Search directory entries with robust normalized fuzzy & prefix matching
 	ext := filepath.Ext(filename)
 	base := strings.TrimSuffix(filename, ext)
 	cleanBase := cleanForMatching(base)
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return cleanPath
-	}
-
-	// 2. Search directory entries with robust normalized fuzzy & prefix matching
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		nameLower := strings.ToLower(name)
-		if strings.HasSuffix(nameLower, ".part") ||
-			strings.HasSuffix(nameLower, ".ytdl") ||
-			strings.HasSuffix(nameLower, ".thunderdm") ||
-			strings.HasSuffix(nameLower, ".temp") ||
-			strings.HasSuffix(nameLower, ".tmp") ||
-			strings.HasSuffix(nameLower, ".merging") {
+	for _, d := range searchDirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
 			continue
 		}
 
-		nameBase := strings.TrimSuffix(name, filepath.Ext(name))
-		cleanEntryBase := cleanForMatching(nameBase)
+		for _, entry := range entries {
+			name := entry.Name()
+			nameLower := strings.ToLower(name)
+			if strings.HasSuffix(nameLower, ".part") ||
+				strings.HasSuffix(nameLower, ".ytdl") ||
+				strings.HasSuffix(nameLower, ".thunderdm") ||
+				strings.HasSuffix(nameLower, ".temp") ||
+				strings.HasSuffix(nameLower, ".tmp") ||
+				strings.HasSuffix(nameLower, ".merging") ||
+				strings.HasSuffix(nameLower, ".bolt.db") {
+				continue
+			}
 
-		if cleanBase != "" && cleanEntryBase != "" {
-			if cleanBase == cleanEntryBase ||
-				strings.HasPrefix(cleanEntryBase, cleanBase) ||
-				strings.HasPrefix(cleanBase, cleanEntryBase) ||
-				(len(cleanBase) >= 8 && strings.Contains(cleanEntryBase, cleanBase)) ||
-				(len(cleanEntryBase) >= 8 && strings.Contains(cleanBase, cleanEntryBase)) {
-				foundPath := filepath.Join(dir, name)
-				if fi, err := os.Stat(foundPath); err == nil && !fi.IsDir() {
-					return foundPath
+			nameBase := strings.TrimSuffix(name, filepath.Ext(name))
+			cleanEntryBase := cleanForMatching(nameBase)
+
+			if cleanBase != "" && cleanEntryBase != "" {
+				if cleanBase == cleanEntryBase ||
+					strings.HasPrefix(cleanEntryBase, cleanBase) ||
+					strings.HasPrefix(cleanBase, cleanEntryBase) ||
+					(len(cleanBase) >= 6 && strings.Contains(cleanEntryBase, cleanBase)) ||
+					(len(cleanEntryBase) >= 6 && strings.Contains(cleanBase, cleanEntryBase)) {
+					foundPath := filepath.Join(d, name)
+					if _, err := os.Stat(foundPath); err == nil {
+						return foundPath
+					}
 				}
 			}
 		}
