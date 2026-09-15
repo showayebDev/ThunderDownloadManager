@@ -96,3 +96,20 @@ func TestNormalizeSavePathForTorrent(t *testing.T) {
 		t.Errorf("unexpected save path: %s", p)
 	}
 }
+
+func TestNewTorrentTaskController_NilContext(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("NewTorrentTaskController panicked on nil context: %v", r)
+		}
+	}()
+
+	task := NewTorrentTaskController(nil, "torrent-test-1", "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", "C:\\Downloads", "test.iso", 8, nil, DownloadExtraOptions{})
+	if task == nil {
+		t.Fatal("expected non-nil TorrentTaskController")
+	}
+	if task.ctx == nil {
+		t.Fatal("expected non-nil task context")
+	}
+}
+

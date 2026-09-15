@@ -362,13 +362,34 @@ func NormalizeSavePath(savePath string, category ...string) string {
 	return filepath.Clean(savePath)
 }
 
+// CleanTorrentSource strips quotes, option tags (::...), and file:// schemes from local paths or URLs.
+func CleanTorrentSource(source string) string {
+	s := strings.TrimSpace(source)
+	s = strings.Trim(s, "\"'")
+	if idx := strings.Index(s, "::"); idx != -1 {
+		s = s[:idx]
+	}
+	s = strings.TrimSpace(s)
+
+	lower := strings.ToLower(s)
+	if strings.HasPrefix(lower, "file://") {
+		clean := s[7:]
+		if strings.HasPrefix(clean, "/") && len(clean) > 2 && clean[2] == ':' {
+			clean = clean[1:] // Clean Windows /C:/... to C:/...
+		}
+		return filepath.Clean(clean)
+	}
+
+	return s
+}
+
 // IsTorrentURL checks if the provided URL or file path represents a BitTorrent source (Magnet link or .torrent file).
 func IsTorrentURL(urlStr string) bool {
-	trimmed := strings.TrimSpace(urlStr)
-	if trimmed == "" {
+	s := CleanTorrentSource(urlStr)
+	if s == "" {
 		return false
 	}
-	lower := strings.ToLower(trimmed)
+	lower := strings.ToLower(s)
 	if strings.HasPrefix(lower, "magnet:") {
 		return true
 	}
@@ -383,12 +404,9 @@ func IsTorrentURL(urlStr string) bool {
 
 // IsTorrentFile checks if the provided file path is a local .torrent file.
 func IsTorrentFile(filePath string) bool {
-	clean := filepath.Clean(strings.TrimSpace(filePath))
+	clean := CleanTorrentSource(filePath)
 	if clean == "" {
 		return false
-	}
-	if strings.HasPrefix(clean, "file://") {
-		clean = strings.TrimPrefix(clean, "file://")
 	}
 	return strings.EqualFold(filepath.Ext(clean), ".torrent")
 }

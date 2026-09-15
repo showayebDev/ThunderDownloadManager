@@ -559,6 +559,7 @@ export const DownloadStartConfirmation: React.FC = () => {
         pathname = new URL(url.trim()).pathname;
       } catch {}
 
+      pathname = pathname.replace(/\\/g, '/');
       const segments = pathname.split('/');
       const rawFilename = segments.pop() || '';
       let cleanFilename = decodeURIComponent(rawFilename).replace(/^['"]|['"]$/g, '');
@@ -598,7 +599,11 @@ export const DownloadStartConfirmation: React.FC = () => {
 
       if (isTorrent) {
         setProtocol('Torrent');
-        if (!cleanFilename || cleanFilename === '/' || cleanFilename === '.' || cleanFilename === 'download') {
+        if (initialName && initialName.trim() && initialName !== 'download' && !initialName.toLowerCase().endsWith('.torrent')) {
+          cleanFilename = initialName.trim();
+        } else if (name && name.trim() && name !== 'download' && !name.toLowerCase().endsWith('.torrent') && !name.includes('/') && !name.includes('\\')) {
+          cleanFilename = name.trim();
+        } else if (!cleanFilename || cleanFilename === '/' || cleanFilename === '.' || cleanFilename === 'download' || cleanFilename.toLowerCase().endsWith('.torrent')) {
           try {
             const dnMatch = url.match(/[?&]dn=([^&]+)/i);
             if (dnMatch && dnMatch[1]) {
