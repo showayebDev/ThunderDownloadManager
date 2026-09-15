@@ -94,7 +94,7 @@ func GetGlobalTorrentClient() (*torrent.Client, error) {
 
 // ParseTorrentInfo parses metadata from a magnet URI, local .torrent file path, or remote .torrent URL.
 func ParseTorrentInfo(source string) (*TorrentInfo, error) {
-	source = strings.TrimSpace(source)
+	source = CleanTorrentSource(source)
 	if source == "" {
 		return nil, fmt.Errorf("empty torrent source")
 	}
@@ -127,15 +127,30 @@ func ParseTorrentInfo(source string) (*TorrentInfo, error) {
 			Trackers: trackers,
 		}
 
-		// Also try to query global client if available with a short timeout to see if metadata is already known
+		// Also try to query or add to global client with a short timeout to see if metadata is or becomes available
 		if client, err := GetGlobalTorrentClient(); err == nil && client != nil {
-			if t, ok := client.Torrent(spec.InfoHash); ok && t.Info() != nil {
-				info.TotalSize = t.Length()
-				info.PieceLength = t.Info().PieceLength
-				info.PieceCount = t.NumPieces()
-				info.FileCount = len(t.Files())
-				for _, f := range t.Files() {
-					info.Files = append(info.Files, f.DisplayPath())
+			t, _, _ := client.AddTorrentSpec(spec)
+			if t != nil {
+				t.AddTrackers(DefaultPublicTrackers)
+				if t.Info() == nil {
+					gotInfo := t.GotInfo()
+					select {
+					case <-gotInfo:
+					case <-time.After(3 * time.Second):
+					}
+				}
+				if t.Info() != nil {
+					info.TotalSize = t.Length()
+					info.PieceLength = t.Info().PieceLength
+					info.PieceCount = t.NumPieces()
+					info.FileCount = len(t.Files())
+					if t.Name() != "" {
+						info.Name = t.Name()
+					}
+					info.Files = nil
+					for _, f := range t.Files() {
+						info.Files = append(info.Files, f.DisplayPath())
+					}
 				}
 			}
 		}
@@ -170,15 +185,7 @@ func ParseTorrentInfo(source string) (*TorrentInfo, error) {
 	}
 
 	// 3. Handle local .torrent file path
-	cleanPath := filepath.Clean(source)
-	if strings.HasPrefix(cleanPath, "file://") {
-		cleanPath = strings.TrimPrefix(cleanPath, "file://")
-		if strings.HasPrefix(cleanPath, "/") && len(cleanPath) > 2 && cleanPath[2] == ':' {
-			cleanPath = cleanPath[1:] // Clean Windows /C:/... to C:/...
-		}
-		cleanPath = filepath.Clean(cleanPath)
-	}
-
+	cleanPath := source
 	if _, err := os.Stat(cleanPath); err == nil {
 		mi, err := metainfo.LoadFromFile(cleanPath)
 		if err != nil {
