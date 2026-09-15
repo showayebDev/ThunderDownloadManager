@@ -46,17 +46,23 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 
 	var filename string
 	var fileSize int64 = 0
+	cleanURL := downloader.CleanTorrentSource(rawUrl)
 	isTorrent := downloader.IsTorrentURL(rawUrl) || downloader.IsTorrentFile(rawUrl)
-	isYTDLP := !isTorrent && downloader.IsYTDLPURL(rawUrl)
-	isHLS := !isTorrent && !isYTDLP && downloader.IsHLSURL(rawUrl)
+	isYTDLP := !isTorrent && downloader.IsYTDLPURL(cleanURL)
+	isHLS := !isTorrent && !isYTDLP && downloader.IsHLSURL(cleanURL)
 
-	// Extract basic filename from URL first
-	parsedUrl, err := url.Parse(rawUrl)
-	if err == nil {
-		filename = path.Base(parsedUrl.Path)
+	// Extract basic filename from URL or local file path first
+	parsedUrl, err := url.Parse(cleanURL)
+	if isTorrent && downloader.IsTorrentFile(cleanURL) {
+		filename = filepath.Base(cleanURL)
+	} else if err == nil {
+		p := strings.ReplaceAll(parsedUrl.Path, "\\", "/")
+		filename = path.Base(p)
 		log.Printf("[DownloadCommand] Extracted base filename from URL: %s\n", filename)
 	} else {
-		log.Printf("[DownloadCommand] Error parsing URL: %v\n", err)
+		cleanPath := strings.ReplaceAll(cleanURL, "\\", "/")
+		filename = path.Base(cleanPath)
+		log.Printf("[DownloadCommand] Error parsing URL, used path base: %s\n", filename)
 	}
 
 	proto := "Auto"
@@ -65,7 +71,7 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 	if isTorrent {
 		proto = "Torrent"
 		category = "Torrents"
-		if tInfo, err := downloader.ParseTorrentInfo(rawUrl); err == nil && tInfo != nil {
+		if tInfo, err := downloader.ParseTorrentInfo(cleanURL); err == nil && tInfo != nil {
 			if tInfo.Name != "" {
 				filename = tInfo.Name
 			}

@@ -27,6 +27,7 @@ var once sync.Once
 func GetEngine() *Engine {
 	once.Do(func() {
 		instance = &Engine{
+			ctx:           context.Background(),
 			globalLimiter: NewSpeedLimiter(0),
 		}
 		CleanBinDirectory()
@@ -54,7 +55,9 @@ func (e *Engine) SetGlobalSpeedLimit(bytesPerSec int64) {
 
 // Startup initializes the engine with the Wails application context.
 func (e *Engine) Startup(ctx context.Context) {
-	e.ctx = ctx
+	if ctx != nil {
+		e.ctx = ctx
+	}
 	InitProxyManager()
 	LoadEngineConfig()
 }

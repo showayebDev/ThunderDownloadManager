@@ -47,6 +47,9 @@ func NewTorrentTaskController(
 	speedLimit *int64,
 	options DownloadExtraOptions,
 ) *TorrentTaskController {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	taskCtx, cancel := context.WithCancel(ctx)
 
 	return &TorrentTaskController{
@@ -81,9 +84,9 @@ func (c *TorrentTaskController) Start() {
 	var t *torrent.Torrent
 	var addErr error
 
-	rawSource := strings.TrimSpace(c.options.CleanURL)
+	rawSource := CleanTorrentSource(c.options.CleanURL)
 	if rawSource == "" {
-		rawSource = strings.TrimSpace(c.url)
+		rawSource = CleanTorrentSource(c.url)
 	}
 
 	if strings.HasPrefix(strings.ToLower(rawSource), "magnet:") {
@@ -113,14 +116,7 @@ func (c *TorrentTaskController) Start() {
 		t, _, addErr = client.AddTorrentSpec(spec)
 	} else {
 		// Local .torrent file
-		cleanPath := filepath.Clean(rawSource)
-		if strings.HasPrefix(cleanPath, "file://") {
-			cleanPath = strings.TrimPrefix(cleanPath, "file://")
-			if strings.HasPrefix(cleanPath, "/") && len(cleanPath) > 2 && cleanPath[2] == ':' {
-				cleanPath = cleanPath[1:]
-			}
-			cleanPath = filepath.Clean(cleanPath)
-		}
+		cleanPath := rawSource
 		mi, err := metainfo.LoadFromFile(cleanPath)
 		if err != nil {
 			c.failTask(fmt.Sprintf("Failed to read torrent file: %v", err))
@@ -137,9 +133,11 @@ func (c *TorrentTaskController) Start() {
 		return
 	}
 
-	// Tell client to start peer search and piece download immediately
+	// Tell client to start peer search and piece download if metadata is already available
 	t.AddTrackers(DefaultPublicTrackers)
-	t.DownloadAll()
+	if t.Info() != nil {
+		t.DownloadAll()
+	}
 
 	c.mu.Lock()
 	c.torrent = t
@@ -155,14 +153,17 @@ func (c *TorrentTaskController) Start() {
 			info := t.Info()
 			if info != nil {
 				c.mu.Lock()
-				if c.filename == "" || c.filename == "download" || strings.HasSuffix(c.filename, ".torrent") {
-					c.filename = SanitizeFilename(t.Name())
+				if c.filename == "" || c.filename == "download" || strings.HasSuffix(c.filename, ".torrent") || strings.HasPrefix(c.filename, "Torrent_") {
+					if t.Name() != "" {
+						c.filename = SanitizeFilename(t.Name())
+					}
 				}
 				c.totalSize = t.Length()
 				c.mu.Unlock()
 
 				_ = storage.UpdateDownloadMetadata(c.id, c.filename, c.totalSize)
 				t.DownloadAll()
+				c.emitProgress()
 				log.Printf("[TorrentTask] Metadata resolved for %s: %s (Total: %d bytes, Pieces: %d)\n", c.id, c.filename, c.totalSize, t.NumPieces())
 			}
 		}
@@ -176,7 +177,10 @@ func (c *TorrentTaskController) Start() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	var lastBytes int64 = t.BytesCompleted()
+	var lastBytes int64 = 0
+	if t.Info() != nil {
+		lastBytes = t.BytesCompleted()
+	}
 	var lastTime = time.Now()
 
 	for {
@@ -198,65 +202,72 @@ func (c *TorrentTaskController) Start() {
 				elapsed = 1.0
 			}
 
-			curBytes := t.BytesCompleted()
-			delta := curBytes - lastBytes
-			if delta < 0 {
-				delta = 0
-			}
-
-			calcSpeed := float64(delta) / elapsed
-			lastBytes = curBytes
-			lastTime = now
-
-			total := t.Length()
+			var curBytes int64 = 0
+			var total int64 = 0
+			var calcSpeed float64 = 0
 			var calcETA float64 = 0
-			if calcSpeed > 0 && total > curBytes {
-				calcETA = float64(total-curBytes) / calcSpeed
-				if calcETA > 864000 {
-					calcETA = 864000
-				}
-			}
-
-			// Generate chunk segments from pieces for UI visualizer
-			numPieces := t.NumPieces()
 			var chunkPayloads []ChunkPayload
-			if numPieces > 0 {
-				numChunks := 16
-				if numPieces < numChunks {
-					numChunks = int(math.Max(1, float64(numPieces)))
+
+			if t.Info() != nil {
+				curBytes = t.BytesCompleted()
+				delta := curBytes - lastBytes
+				if delta < 0 {
+					delta = 0
 				}
-				chunkPayloads = make([]ChunkPayload, numChunks)
-				piecesPerChunk := float64(numPieces) / float64(numChunks)
-				for i := 0; i < numChunks; i++ {
-					startP := int(float64(i) * piecesPerChunk)
-					endP := int(float64(i+1) * piecesPerChunk)
-					if endP > numPieces {
-						endP = numPieces
+
+				calcSpeed = float64(delta) / elapsed
+				lastBytes = curBytes
+				lastTime = now
+
+				total = t.Length()
+				if calcSpeed > 0 && total > curBytes {
+					calcETA = float64(total-curBytes) / calcSpeed
+					if calcETA > 864000 {
+						calcETA = 864000
 					}
-					completedInChunk := 0
-					totalInChunk := endP - startP
-					for p := startP; p < endP; p++ {
-						if t.Piece(p).State().Complete {
-							completedInChunk++
+				}
+
+				// Generate chunk segments from pieces for UI visualizer
+				numPieces := t.NumPieces()
+				if numPieces > 0 {
+					numChunks := 16
+					if numPieces < numChunks {
+						numChunks = int(math.Max(1, float64(numPieces)))
+					}
+					chunkPayloads = make([]ChunkPayload, numChunks)
+					piecesPerChunk := float64(numPieces) / float64(numChunks)
+					for i := 0; i < numChunks; i++ {
+						startP := int(float64(i) * piecesPerChunk)
+						endP := int(float64(i+1) * piecesPerChunk)
+						if endP > numPieces {
+							endP = numPieces
 						}
-					}
+						completedInChunk := 0
+						totalInChunk := endP - startP
+						for p := startP; p < endP; p++ {
+							if t.Piece(p).State().Complete {
+								completedInChunk++
+							}
+						}
 
-					var chunkStatus DownloadStatus = StatusPending
-					if completedInChunk == totalInChunk && totalInChunk > 0 {
-						chunkStatus = StatusFinished
-					} else if completedInChunk > 0 {
-						chunkStatus = StatusDownloading
-					}
+						var chunkStatus DownloadStatus = StatusPending
+						if completedInChunk == totalInChunk && totalInChunk > 0 {
+							chunkStatus = StatusFinished
+						} else if completedInChunk > 0 {
+							chunkStatus = StatusDownloading
+						}
 
-					chunkPayloads[i] = ChunkPayload{
-						ID:         i + 1,
-						Status:     chunkStatus,
-						Downloaded: int64(completedInChunk),
-						Total:      int64(totalInChunk),
+						chunkPayloads[i] = ChunkPayload{
+							ID:         i + 1,
+							Status:     chunkStatus,
+							Downloaded: int64(completedInChunk),
+							Total:      int64(totalInChunk),
+						}
 					}
 				}
 			} else {
 				// While fetching metadata, show 8 connecting pseudo-chunks reflecting peer connectivity
+				lastTime = now
 				numChunks := 8
 				chunkPayloads = make([]ChunkPayload, numChunks)
 				activePeers := len(t.PeerConns())
