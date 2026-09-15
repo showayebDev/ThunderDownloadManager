@@ -113,6 +113,7 @@ func main() {
 		OnShutdown: func() {
 			log.Println("[Main] Application shutting down, pausing all active downloads...")
 			downloader.GetEngine().PauseAll()
+			downloader.CloseGlobalTorrentPieceCompletion()
 			if systray != nil {
 				systray.Destroy()
 			}

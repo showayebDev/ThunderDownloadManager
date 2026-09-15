@@ -15,7 +15,6 @@ import (
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
-	torstorage "github.com/anacrolix/torrent/storage"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -95,7 +94,7 @@ func (c *TorrentTaskController) Start() {
 			c.failTask(fmt.Sprintf("Invalid magnet URI: %v", err))
 			return
 		}
-		spec.Storage = torstorage.NewFile(saveDir)
+		spec.Storage = NewThunderTorrentStorage(saveDir)
 		spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
 		t, _, addErr = client.AddTorrentSpec(spec)
 	} else if strings.HasPrefix(strings.ToLower(rawSource), "http://") || strings.HasPrefix(strings.ToLower(rawSource), "https://") {
@@ -111,7 +110,7 @@ func (c *TorrentTaskController) Start() {
 			return
 		}
 		spec := torrent.TorrentSpecFromMetaInfo(mi)
-		spec.Storage = torstorage.NewFile(saveDir)
+		spec.Storage = NewThunderTorrentStorage(saveDir)
 		spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
 		t, _, addErr = client.AddTorrentSpec(spec)
 	} else {
@@ -123,7 +122,7 @@ func (c *TorrentTaskController) Start() {
 			return
 		}
 		spec := torrent.TorrentSpecFromMetaInfo(mi)
-		spec.Storage = torstorage.NewFile(saveDir)
+		spec.Storage = NewThunderTorrentStorage(saveDir)
 		spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
 		t, _, addErr = client.AddTorrentSpec(spec)
 	}
