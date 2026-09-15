@@ -5,7 +5,8 @@ export type Category =
   | 'Videos' 
   | 'Music' 
   | 'Pictures' 
-  | 'Documents';
+  | 'Documents'
+  | 'Torrents';
 
 export type DownloadStatus = 
   | 'Finished' 

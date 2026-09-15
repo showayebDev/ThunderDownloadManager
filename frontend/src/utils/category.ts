@@ -4,6 +4,18 @@ export const detectCategory = (filenameOrUrl: string, protocol?: string): Catego
   if (!filenameOrUrl) return 'Documents';
   const lower = filenameOrUrl.toLowerCase();
 
+  // Check BitTorrent / Magnet links
+  if (
+    lower.startsWith('magnet:') ||
+    lower.endsWith('.torrent') ||
+    lower.includes('.torrent?') ||
+    lower.includes('.torrent#') ||
+    protocol === 'Torrent' ||
+    (typeof protocol === 'string' && protocol.toLowerCase().startsWith('torrent'))
+  ) {
+    return 'Torrents';
+  }
+
   // Check media streaming hosts and protocols
   const videoHosts = [
     'youtube.com', 'youtu.be', 'vimeo.com', 'tiktok.com', 
