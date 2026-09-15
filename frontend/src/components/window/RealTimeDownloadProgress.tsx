@@ -70,6 +70,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
   const [chunks, setChunks] = useState<ChunkInfo[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isYTDLP, setIsYTDLP] = useState<boolean>(false);
+  const [isTorrent, setIsTorrent] = useState<boolean>(false);
   const [isYtdlpInstalled, setIsYtdlpInstalled] = useState<boolean>(true);
   const [isInstallingYtdlp, setIsInstallingYtdlp] = useState<boolean>(false);
   const [ytdlpInstallError, setYtdlpInstallError] = useState<string>('');
@@ -165,6 +166,14 @@ export const RealTimeDownloadProgress: React.FC = () => {
           p.url.includes('tiktok.com')))
     ) {
       setIsYTDLP(true);
+    }
+
+    if (
+      p.protocol === 'Torrent' ||
+      (typeof p.protocol === 'string' && p.protocol.startsWith('Torrent')) ||
+      (p.url && (p.url.startsWith('magnet:') || p.url.endsWith('.torrent')))
+    ) {
+      setIsTorrent(true);
     }
 
     const dl = p.downloaded !== undefined ? p.downloaded : p.downloaded_bytes ?? null;
@@ -735,10 +744,14 @@ export const RealTimeDownloadProgress: React.FC = () => {
                     ? 'text-emerald-500'
                     : status === 'Merging'
                     ? 'text-primary animate-pulse'
+                    : isTorrent && totalSize === 0 && status === 'Downloading'
+                    ? 'text-amber-500 animate-pulse'
                     : 'text-foreground'
                 }`}
               >
-                {status}
+                {isTorrent && totalSize === 0 && status === 'Downloading'
+                  ? 'Connecting to BitTorrent Swarm...'
+                  : status}
               </span>
             </div>
 
@@ -818,6 +831,8 @@ export const RealTimeDownloadProgress: React.FC = () => {
               <span className="text-foreground font-medium min-w-0 truncate">
                 {totalSize > 0
                   ? formatBytes(totalSize)
+                  : isTorrent
+                  ? 'Fetching metadata from swarm...'
                   : downloaded > 0
                   ? '~' + formatBytes(downloaded)
                   : 'Calculating...'}
@@ -885,6 +900,78 @@ export const RealTimeDownloadProgress: React.FC = () => {
                 </div>
                 <div className="text-[11px] text-muted-foreground leading-relaxed break-words">
                   Threading and bandwidth speed limits are managed internally by the single-process YT-DLP and FFmpeg multiplexer engine. Manual thread and speed limit adjustments are disabled for this stream.
+                </div>
+              </div>
+            ) : isTorrent ? (
+              <div className="space-y-4 min-w-0 w-full">
+                <div className="p-3 bg-muted/30 border border-primary/30 rounded-xl space-y-1.5 min-w-0 w-full">
+                  <div className="flex items-center space-x-1.5 font-semibold text-primary">
+                    <Zap className="w-3.5 h-3.5 shrink-0" />
+                    <span>BitTorrent P2P Swarm Engine</span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                    Peer connections and piece multithreading are automatically managed across the BitTorrent swarm via DHT and public trackers.
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-border min-w-0">
+                  <div className="min-w-0 mr-2">
+                    <div className="flex items-center space-x-1 font-semibold text-foreground">
+                      <span>Speed Limit</span>
+                      <HelpTooltip description="Cap maximum download transfer speed for this download task." />
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      {speedLimitEnabled && speedLimitVal > 0
+                        ? `Limited to ${speedLimitVal} ${speedLimitUnit}`
+                        : speedLimitEnabled
+                        ? 'Limited'
+                        : 'Unlimited'}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    {speedLimitEnabled && (
+                      <div className="flex items-center space-x-1.5 animate-in fade-in duration-150">
+                        <Input
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="5"
+                          value={speedLimitVal || ''}
+                          onChange={(e) => {
+                            const val =
+                              e.target.value === '' ? 0 : Math.max(1, parseInt(e.target.value, 10) || 0);
+                            handleSpeedLimitChange(true, val, speedLimitUnit);
+                          }}
+                          className="w-16 bg-background text-foreground text-xs font-mono font-semibold h-8 text-center"
+                        />
+                        <select
+                          value={speedLimitUnit}
+                          onChange={(e) => {
+                            handleSpeedLimitChange(true, speedLimitVal || 5, e.target.value);
+                          }}
+                          className="bg-background border border-border text-foreground text-xs rounded-lg px-2 py-1 outline-none cursor-pointer h-8 font-medium"
+                        >
+                          <option value="MB/s" className="bg-card">
+                            MB/s
+                          </option>
+                          <option value="KB/s" className="bg-card">
+                            KB/s
+                          </option>
+                        </select>
+                      </div>
+                    )}
+
+                    <Checkbox
+                      checked={speedLimitEnabled}
+                      onCheckedChange={(checked) => {
+                        const enabled = Boolean(checked);
+                        const defaultVal =
+                          enabled && (!speedLimitVal || speedLimitVal <= 0) ? 5 : speedLimitVal;
+                        handleSpeedLimitChange(enabled, defaultVal, speedLimitUnit);
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1231,9 +1318,15 @@ export const RealTimeDownloadProgress: React.FC = () => {
                     <thead>
                       <tr className="border-b border-border text-muted-foreground font-medium">
                         <th className="py-2 px-2 w-10 text-left">#</th>
-                        <th className="py-2 px-2 w-28 text-left">Status</th>
-                        <th className="py-2 px-2 text-left">Downloaded</th>
-                        <th className="py-2 px-2 text-left">Total</th>
+                        <th className="py-2 px-2 w-28 text-left">
+                          {isTorrent && totalSize === 0 ? 'Peer / Swarm' : 'Status'}
+                        </th>
+                        <th className="py-2 px-2 text-left">
+                          {isTorrent && totalSize === 0 ? 'State' : isTorrent ? 'Pieces Done' : 'Downloaded'}
+                        </th>
+                        <th className="py-2 px-2 text-left">
+                          {isTorrent && totalSize === 0 ? 'Protocol' : isTorrent ? 'Pieces Total' : 'Total'}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border text-foreground/80 font-mono">
@@ -1244,7 +1337,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
                             className="hover:bg-accent/40 transition-colors"
                           >
                             <td className="py-1.5 px-2 text-muted-foreground truncate">
-                              {chunk.id !== undefined ? chunk.id + 1 : index + 1}
+                              {chunk.id !== undefined ? chunk.id : index + 1}
                             </td>
                             <td className="py-1.5 px-2 truncate">
                               <span
@@ -1262,15 +1355,31 @@ export const RealTimeDownloadProgress: React.FC = () => {
                                     : 'text-foreground'
                                 }`}
                               >
-                                {chunk.status === 'Finished'
+                                {isTorrent && totalSize === 0
+                                  ? chunk.status === 'Downloading'
+                                    ? 'Peer Connected'
+                                    : 'Searching...'
+                                  : chunk.status === 'Finished'
                                   ? 'Finished'
                                   : isPaused
                                   ? 'Paused'
                                   : chunk.status}
                               </span>
                             </td>
-                            <td className="py-1.5 px-2 truncate">{formatBytes(chunk.downloaded)}</td>
-                            <td className="py-1.5 px-2 truncate">{formatBytes(chunk.total)}</td>
+                            <td className="py-1.5 px-2 truncate">
+                              {isTorrent && totalSize === 0
+                                ? 'Resolving Swarm'
+                                : isTorrent
+                                ? `${chunk.downloaded} pieces`
+                                : formatBytes(chunk.downloaded)}
+                            </td>
+                            <td className="py-1.5 px-2 truncate">
+                              {isTorrent && totalSize === 0
+                                ? 'BitTorrent DHT'
+                                : isTorrent
+                                ? `${chunk.total} pieces`
+                                : formatBytes(chunk.total)}
+                            </td>
                           </tr>
                         ))
                       ) : (
@@ -1279,7 +1388,9 @@ export const RealTimeDownloadProgress: React.FC = () => {
                             colSpan={4}
                             className="py-4 text-center text-muted-foreground font-sans italic"
                           >
-                            No chunk segments active...
+                            {isTorrent
+                              ? 'Connecting to BitTorrent swarm & discovering peers...'
+                              : 'No chunk segments active...'}
                           </td>
                         </tr>
                       )}

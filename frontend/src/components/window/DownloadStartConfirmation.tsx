@@ -18,6 +18,7 @@ import {
   HelpCircle,
   AlertTriangle,
   Ban,
+  Magnet,
 } from 'lucide-react';
 import { useDownloadContext } from '../../context/DownloadContext';
 import { WindowMinimise, Quit, invoke, listen } from '../../utils/tauriBridge';
@@ -112,9 +113,25 @@ export const DownloadStartConfirmation: React.FC = () => {
   const { addDownload, globalSettings, extensionPayload } = useDownloadContext();
 
   const initialUrl = extensionPayload?.url || '';
-  const initialName = extensionPayload?.filename
-    ? decodeURIComponent(extensionPayload.filename)
-    : '';
+  const initialName = (() => {
+    if (extensionPayload?.filename) return decodeURIComponent(extensionPayload.filename);
+    if (initialUrl && initialUrl.toLowerCase().startsWith('magnet:')) {
+      const dnMatch = initialUrl.match(/[?&]dn=([^&]+)/i);
+      if (dnMatch && dnMatch[1]) {
+        try {
+          return decodeURIComponent(dnMatch[1].replace(/\+/g, ' '));
+        } catch {
+          return dnMatch[1];
+        }
+      }
+      const xtMatch = initialUrl.match(/[?&]xt=urn:btih:([^&]+)/i);
+      if (xtMatch && xtMatch[1]) {
+        return `Torrent_${xtMatch[1].slice(0, 8)}`;
+      }
+      return 'Torrent_Download';
+    }
+    return '';
+  })();
   const initialReferrer = extensionPayload?.referrer || '';
   const initialUserAgent = extensionPayload?.userAgent || '';
   const initialCookies = extensionPayload?.cookies || '';
@@ -142,7 +159,14 @@ export const DownloadStartConfirmation: React.FC = () => {
 
   const [url, setUrl] = useState<string>(initialUrl);
   const [name, setName] = useState<string>(initialName);
-  const [category, setCategory] = useState<string>(extensionPayload?.category || '');
+  const [category, setCategory] = useState<string>(() => {
+    if (extensionPayload?.category) return extensionPayload.category;
+    const lower = (initialUrl || '').toLowerCase();
+    if (lower.startsWith('magnet:') || lower.endsWith('.torrent') || lower.includes('.torrent?') || lower.includes('.torrent#')) {
+      return 'Torrents';
+    }
+    return initialName ? utilDetectCategory(initialName) : (initialUrl ? utilDetectCategory(initialUrl) : '');
+  });
   const [isCustomPath, setIsCustomPath] = useState<boolean>(false);
   const [saveCategoryPath, setSaveCategoryPath] = useState<boolean>(false);
   const [categoryPaths, setCategoryPaths] = useState<{ [key: string]: string }>({});
@@ -335,7 +359,14 @@ export const DownloadStartConfirmation: React.FC = () => {
     }
   };
 
-  const [protocol, setProtocol] = useState<string>('Auto');
+  const [protocol, setProtocol] = useState<string>(() => {
+    if (extensionPayload?.protocol) return extensionPayload.protocol;
+    const lower = (initialUrl || '').toLowerCase();
+    if (lower.startsWith('magnet:') || lower.endsWith('.torrent') || lower.includes('.torrent?') || lower.includes('.torrent#')) {
+      return 'Torrent';
+    }
+    return 'Auto';
+  });
   const [ytdlpQuality, setYtdlpQuality] = useState<string>('best');
   const [availableFormats, setAvailableFormats] = useState<YtdlpFormat[]>([]);
   const [isYtdlpInstalled, setIsYtdlpInstalled] = useState<boolean>(true);
@@ -547,24 +578,47 @@ export const DownloadStartConfirmation: React.FC = () => {
         'soundcloud.com',
         'twitch.tv',
       ];
+      const lowerUrl = url.trim().toLowerCase();
       const isTorrent =
         protocol === 'Torrent' ||
-        url.toLowerCase().startsWith('magnet:') ||
-        url.toLowerCase().endsWith('.torrent') ||
-        url.toLowerCase().includes('.torrent?') ||
+        lowerUrl.startsWith('magnet:') ||
+        lowerUrl.endsWith('.torrent') ||
+        lowerUrl.includes('.torrent?') ||
+        lowerUrl.includes('.torrent#') ||
         cleanFilename.toLowerCase().endsWith('.torrent');
       const isYTDLP =
         !isTorrent &&
-        (protocol === 'Yt-DLP' || ytDlpHosts.some((h) => url.toLowerCase().includes(h)));
+        (protocol === 'Yt-DLP' || ytDlpHosts.some((h) => lowerUrl.includes(h)));
       const isHLS =
         !isTorrent &&
         !isYTDLP &&
-        (url.toLowerCase().includes('.m3u8') ||
+        (lowerUrl.includes('.m3u8') ||
           cleanFilename.toLowerCase().endsWith('.m3u8') ||
           protocol === 'HLS');
 
       if (isTorrent) {
         setProtocol('Torrent');
+        if (!cleanFilename || cleanFilename === '/' || cleanFilename === '.' || cleanFilename === 'download') {
+          try {
+            const dnMatch = url.match(/[?&]dn=([^&]+)/i);
+            if (dnMatch && dnMatch[1]) {
+              cleanFilename = decodeURIComponent(dnMatch[1].replace(/\+/g, ' '));
+            } else {
+              const xtMatch = url.match(/[?&]xt=urn:btih:([^&]+)/i);
+              if (xtMatch && xtMatch[1]) {
+                cleanFilename = `Torrent_${xtMatch[1].slice(0, 8)}`;
+              } else if (name && name.trim()) {
+                cleanFilename = name.trim();
+              } else if (initialName && initialName.trim()) {
+                cleanFilename = initialName.trim();
+              } else {
+                cleanFilename = 'Torrent_Download';
+              }
+            }
+          } catch {
+            cleanFilename = name || initialName || 'Torrent_Download';
+          }
+        }
       } else if (isYTDLP) {
         setProtocol('Yt-DLP');
         if (
@@ -950,6 +1004,26 @@ export const DownloadStartConfirmation: React.FC = () => {
       return;
     }
     let finalName = name.trim() || url.split('/').pop() || 'download';
+    const lowerUrl = url.trim().toLowerCase();
+    if (protocol === 'Torrent' || lowerUrl.startsWith('magnet:') || lowerUrl.endsWith('.torrent')) {
+      if (!finalName || finalName === 'download' || finalName.startsWith('magnet:') || finalName === '/' || finalName === '.') {
+        const dnMatch = url.match(/[?&]dn=([^&]+)/i);
+        if (dnMatch && dnMatch[1]) {
+          try {
+            finalName = decodeURIComponent(dnMatch[1].replace(/\+/g, ' '));
+          } catch {
+            finalName = dnMatch[1];
+          }
+        } else {
+          const xtMatch = url.match(/[?&]xt=urn:btih:([^&]+)/i);
+          if (xtMatch && xtMatch[1]) {
+            finalName = `Torrent_${xtMatch[1].slice(0, 8)}`;
+          } else {
+            finalName = 'Torrent_Download';
+          }
+        }
+      }
+    }
     if (
       finalName.toLowerCase().endsWith('.m3u8') ||
       protocol === 'HLS' ||
@@ -1200,6 +1274,26 @@ export const DownloadStartConfirmation: React.FC = () => {
         ? targetQueueName.trim()
         : queue || 'Main';
     let finalName = name.trim() || url.split('/').pop() || 'download';
+    const lowerUrl = url.trim().toLowerCase();
+    if (protocol === 'Torrent' || lowerUrl.startsWith('magnet:') || lowerUrl.endsWith('.torrent')) {
+      if (!finalName || finalName === 'download' || finalName.startsWith('magnet:') || finalName === '/' || finalName === '.') {
+        const dnMatch = url.match(/[?&]dn=([^&]+)/i);
+        if (dnMatch && dnMatch[1]) {
+          try {
+            finalName = decodeURIComponent(dnMatch[1].replace(/\+/g, ' '));
+          } catch {
+            finalName = dnMatch[1];
+          }
+        } else {
+          const xtMatch = url.match(/[?&]xt=urn:btih:([^&]+)/i);
+          if (xtMatch && xtMatch[1]) {
+            finalName = `Torrent_${xtMatch[1].slice(0, 8)}`;
+          } else {
+            finalName = 'Torrent_Download';
+          }
+        }
+      }
+    }
     if (
       finalName.toLowerCase().endsWith('.m3u8') ||
       protocol === 'HLS' ||
@@ -1299,6 +1393,7 @@ export const DownloadStartConfirmation: React.FC = () => {
   };
 
   const renderCategoryIcon = () => {
+    if (category === 'Torrents' || protocol === 'Torrent') return <Magnet className="w-4 h-4 text-amber-400" />;
     if (category === 'Videos') return <Video className="w-4 h-4 text-primary" />;
     if (category === 'Compressed') return <Archive className="w-4 h-4 text-amber-500" />;
     if (category === 'Music') return <Music className="w-4 h-4 text-emerald-500" />;
@@ -1399,6 +1494,9 @@ export const DownloadStartConfirmation: React.FC = () => {
                       <option value="" className="bg-card text-muted-foreground">
                         None
                       </option>
+                      <option value="Torrents" className="bg-card text-amber-400">
+                        Torrents
+                      </option>
                       <option value="Videos" className="bg-card">
                         Videos
                       </option>
@@ -1462,6 +1560,8 @@ export const DownloadStartConfirmation: React.FC = () => {
                     if (newProto === 'Yt-DLP') {
                       setCategory('Videos');
                       checkYtdlpStatus();
+                    } else if (newProto === 'Torrent') {
+                      setCategory('Torrents');
                     }
                   }}
                   className="bg-transparent text-foreground text-xs font-semibold outline-none cursor-pointer pr-2 appearance-none"
@@ -1471,6 +1571,9 @@ export const DownloadStartConfirmation: React.FC = () => {
                   </option>
                   <option value="HTTP" className="bg-card">
                     HTTP
+                  </option>
+                  <option value="Torrent" className="bg-card text-amber-400">
+                    Torrent
                   </option>
                   <option value="HLS" className="bg-card">
                     HLS

@@ -158,9 +158,9 @@ const defaultQueues: QueueConfig[] = [
 ];
 
 const sanitizeDownloadItem = (item: DownloadItem): DownloadItem => {
-  const detected = detectCategory(item.name || item.url);
+  const detected = detectCategory(item.name || item.url, item.protocol);
   let cat = item.category;
-  if (!cat || cat === 'All' || ((cat === 'Programs' || cat === 'Documents') && detected === 'Videos')) {
+  if (!cat || cat === 'All' || ((cat === 'Programs' || cat === 'Documents') && (detected === 'Videos' || detected === 'Torrents'))) {
     cat = detected;
   }
 
@@ -514,6 +514,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       Music: 0,
       Pictures: 0,
       Documents: 0,
+      Torrents: 0,
     };
     downloads.forEach((item) => {
       if (item.category && item.category !== 'All') {

@@ -7,6 +7,7 @@ import {
   Music, 
   Image as ImageIcon, 
   FileText, 
+  Magnet,
   CheckCircle2, 
   Clock, 
   ChevronDown, 
@@ -32,6 +33,7 @@ const CATEGORIES: CategoryItem[] = [
   { id: 'Music', translationKey: 'category.music', icon: Music },
   { id: 'Pictures', translationKey: 'category.pictures', icon: ImageIcon },
   { id: 'Documents', translationKey: 'category.documents', icon: FileText },
+  { id: 'Torrents', translationKey: 'category.torrents', icon: Magnet },
 ];
 
 export const Sidebar: React.FC = () => {

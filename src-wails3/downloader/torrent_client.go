@@ -32,6 +32,21 @@ type TorrentInfo struct {
 	CreatedBy   string   `json:"created_by,omitempty"`
 }
 
+// DefaultPublicTrackers provides a reliable set of top active BitTorrent trackers to accelerate peer discovery.
+var DefaultPublicTrackers = [][]string{
+	{"udp://tracker.opentrackr.org:1337/announce"},
+	{"udp://open.stealth.si:80/announce"},
+	{"udp://tracker.torrent.eu.org:451/announce"},
+	{"udp://explodie.org:6969/announce"},
+	{"udp://tracker.openbittorrent.com:80/announce"},
+	{"http://tracker.openbittorrent.com:80/announce"},
+	{"udp://opentracker.i2p.rocks:6969/announce"},
+	{"udp://tracker.internetwarriors.net:1337/announce"},
+	{"udp://tracker.leechers-paradise.org:6969/announce"},
+	{"udp://coppersurfer.tk:6969/announce"},
+	{"udp://tracker.zer0day.to:1337/announce"},
+}
+
 var (
 	globalTorrentClient *torrent.Client
 	torrentClientOnce   sync.Once

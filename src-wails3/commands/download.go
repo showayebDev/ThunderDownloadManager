@@ -74,8 +74,23 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 			}
 		}
 		if filename == "" || filename == "/" || filename == "." || filename == "download" {
-			if parsedUrl != nil && parsedUrl.Query().Get("dn") != "" {
-				filename = parsedUrl.Query().Get("dn")
+			if parsedUrl != nil {
+				q := parsedUrl.Query()
+				if q.Get("dn") == "" && strings.HasPrefix(parsedUrl.Opaque, "?") {
+					q, _ = url.ParseQuery(strings.TrimPrefix(parsedUrl.Opaque, "?"))
+				}
+				if dn := q.Get("dn"); dn != "" {
+					filename = dn
+				} else if xt := q.Get("xt"); strings.HasPrefix(xt, "urn:btih:") {
+					hash := strings.TrimPrefix(xt, "urn:btih:")
+					if len(hash) > 8 {
+						filename = "Torrent_" + hash[:8]
+					} else {
+						filename = "Torrent_" + hash
+					}
+				} else {
+					filename = "Torrent_Download"
+				}
 			} else {
 				filename = "Torrent_Download"
 			}
