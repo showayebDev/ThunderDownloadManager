@@ -1,6 +1,9 @@
 # ⚡ Thunder Download Manager - Browser Extension
 
 <p align="center">
+  <a href="https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe">
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-Get_Extension-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome Web Store" />
+  </a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/thunder-download-manager/">
     <img src="https://img.shields.io/badge/Mozilla_Firefox-Get_Extension-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white" alt="Firefox Add-on" />
   </a>
@@ -119,6 +122,11 @@ This generates:
 
 ### 1. Chromium-Based Browsers (Chrome, Edge, Brave, Opera, Vivaldi, Arc)
 
+#### Method 1: Official Chrome Web Store (Recommended)
+1. Open the official Chrome Web Store page: **[Thunder Download Manager on Chrome Web Store](https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe)**.
+2. Click **"Add to Chrome"** (or **"Get"** / **"Add to Brave/Edge/Opera"**) to install instantly with automatic updates!
+
+#### Method 2: Manual Unpacked Installation (Development / Build from Source)
 1. Open your browser and navigate to the extensions page:
    - **Google Chrome:** `chrome://extensions/`
    - **Microsoft Edge:** `edge://extensions/`

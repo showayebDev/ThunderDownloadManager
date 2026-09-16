@@ -27,8 +27,8 @@ var assets embed.FS
 var trayIcon []byte
 
 func main() {
-	// Configure download progress emission FPS (e.g. fps := 1.0 for 1s/frame, fps := 0.5 for 2s/frame)
-	fps := 1.0
+	// Configure download progress emission FPS (e.g. fps := 2.0 for 500ms/frame)
+	fps := 2.0
 	downloader.SetProgressFPS(fps)
 
 	// Initialize logger (discards in production, only logs file if --debug in dev)

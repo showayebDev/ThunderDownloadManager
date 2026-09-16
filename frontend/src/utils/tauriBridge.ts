@@ -201,6 +201,12 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         if (cookie) {
           proto = `${proto || 'Auto'}::cookie=${encodeURIComponent(cookie)}`;
         }
+        if (args?.category) {
+          proto = `${proto || 'Auto'}::category=${encodeURIComponent(args.category)}`;
+        }
+        if (args?.queue) {
+          proto = `${proto || 'Auto'}::queue=${encodeURIComponent(args.queue)}`;
+        }
         const showComp = args?.showCompletionWindow ?? args?.show_completion ?? args?.showCompletion;
         if (showComp === false) {
           proto = `${proto || 'Auto'}::show_completion=false`;
@@ -238,6 +244,12 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         }
         if (cookie) {
           proto = `${proto || 'Auto'}::cookie=${encodeURIComponent(cookie)}`;
+        }
+        if (args?.category) {
+          proto = `${proto || 'Auto'}::category=${encodeURIComponent(args.category)}`;
+        }
+        if (args?.queue) {
+          proto = `${proto || 'Auto'}::queue=${encodeURIComponent(args.queue)}`;
         }
         const showComp = args?.showCompletionWindow ?? args?.show_completion ?? args?.showCompletion;
         if (showComp === false) {
