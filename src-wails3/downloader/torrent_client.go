@@ -65,7 +65,7 @@ func (u unclosedPieceCompletion) Close() error {
 	return nil
 }
 
-// GetGlobalTorrentPieceCompletion returns the shared BoltDB piece completion tracker located centrally in ~/.thunderdm/torrent_state.
+// GetGlobalTorrentPieceCompletion returns the shared piece completion tracker located centrally in ~/.thunderdm/torrent_state.
 func GetGlobalTorrentPieceCompletion() torstorage.PieceCompletion {
 	pieceCompletionMu.Lock()
 	defer pieceCompletionMu.Unlock()
@@ -78,9 +78,12 @@ func GetGlobalTorrentPieceCompletion() torstorage.PieceCompletion {
 		}
 		stateDir := filepath.Join(home, ".thunderdm", "torrent_state")
 		_ = os.MkdirAll(stateDir, 0755)
-		pc, err := torstorage.NewBoltPieceCompletion(stateDir)
+		pc, err := torstorage.NewDefaultPieceCompletionForDir(stateDir)
 		if err != nil {
-			log.Printf("[TorrentClient] Bolt piece completion init error: %v (falling back to in-memory)\n", err)
+			pc, err = torstorage.NewBoltPieceCompletion(stateDir)
+		}
+		if err != nil {
+			log.Printf("[TorrentClient] Piece completion init error: %v (falling back to in-memory)\n", err)
 			globalPieceCompletion = torstorage.NewMapPieceCompletion()
 			return
 		}
@@ -100,7 +103,7 @@ func CloseGlobalTorrentPieceCompletion() {
 }
 
 // NewThunderTorrentStorage creates a file storage instance that downloads files to saveDir
-// but keeps internal piece completion state (.torrent.bolt.db) centrally inside ~/.thunderdm/torrent_state/.
+// but keeps internal piece completion state centrally inside ~/.thunderdm/torrent_state/.
 func NewThunderTorrentStorage(saveDir string) torstorage.ClientImplCloser {
 	pc := GetGlobalTorrentPieceCompletion()
 	if pc != nil {
@@ -188,31 +191,45 @@ func ParseTorrentInfo(source string) (*TorrentInfo, error) {
 
 		// Also try to query or add to global client with a short timeout to see if metadata is or becomes available
 		if client, err := GetGlobalTorrentClient(); err == nil && client != nil {
-			t, _, _ := client.AddTorrentSpec(spec)
-			if t != nil {
-				t.AddTrackers(DefaultPublicTrackers)
-				if t.Info() == nil {
-					gotInfo := t.GotInfo()
-					select {
-					case <-gotInfo:
-					case <-time.After(3 * time.Second):
-					}
+			if existing, ok := client.Torrent(spec.InfoHash); ok && existing != nil && existing.Info() != nil {
+				info.TotalSize = existing.Length()
+				info.PieceLength = existing.Info().PieceLength
+				info.PieceCount = existing.NumPieces()
+				info.FileCount = len(existing.Files())
+				if existing.Name() != "" {
+					info.Name = existing.Name()
 				}
-				if t.Info() != nil {
-					info.TotalSize = t.Length()
-					info.PieceLength = t.Info().PieceLength
-					info.PieceCount = t.NumPieces()
-					info.FileCount = len(t.Files())
-					if t.Name() != "" {
-						info.Name = t.Name()
-					}
-					info.Files = nil
-					for _, f := range t.Files() {
-						info.Files = append(info.Files, f.DisplayPath())
-					}
+				info.Files = nil
+				for _, f := range existing.Files() {
+					info.Files = append(info.Files, f.DisplayPath())
 				}
-				// Always drop probe torrent so it does not lock the infohash with temporary storage
-				t.Drop()
+			} else if !ok || existing == nil {
+				t, _, _ := client.AddTorrentSpec(spec)
+				if t != nil {
+					t.AddTrackers(DefaultPublicTrackers)
+					if t.Info() == nil {
+						gotInfo := t.GotInfo()
+						select {
+						case <-gotInfo:
+						case <-time.After(3 * time.Second):
+						}
+					}
+					if t.Info() != nil {
+						info.TotalSize = t.Length()
+						info.PieceLength = t.Info().PieceLength
+						info.PieceCount = t.NumPieces()
+						info.FileCount = len(t.Files())
+						if t.Name() != "" {
+							info.Name = t.Name()
+						}
+						info.Files = nil
+						for _, f := range t.Files() {
+							info.Files = append(info.Files, f.DisplayPath())
+						}
+					}
+					// Always drop probe torrent so it does not lock the infohash with temporary storage
+					t.Drop()
+				}
 			}
 		}
 
