@@ -239,6 +239,8 @@ func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, thread
 			"is_hls":         isHLS,
 			"is_ytdlp":       isYTDLP,
 			"protocol":       proto,
+			"category":       parsedOpts.Category,
+			"queue":          parsedOpts.Queue,
 			"given_checksum": checksumStr,
 			"givenCheckSum":  checksumStr,
 			"thread_count":   taskRunner.GetState()["thread_count"],

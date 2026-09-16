@@ -171,6 +171,7 @@ type ProgressPayload struct {
 	Protocol         string         `json:"protocol,omitempty"`
 	IsYTDLP          bool           `json:"is_ytdlp,omitempty"`
 	IsTorrent        bool           `json:"is_torrent,omitempty"`
+	IsHLS            bool           `json:"is_hls,omitempty"`
 	Resumable        bool           `json:"resumable"`
 	ResumeSupport    string         `json:"resume_support,omitempty"`
 	ProxyUsed        string         `json:"proxy_used,omitempty"`

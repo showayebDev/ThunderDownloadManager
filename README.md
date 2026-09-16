@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19" />
   <img src="https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS v4" />
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-555555?style=for-the-badge" alt="Platforms" />
+  <a href="https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe"><img src="https://img.shields.io/badge/Chrome_Web_Store-Official_Extension-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome Web Store" /></a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/thunder-download-manager/"><img src="https://img.shields.io/badge/Firefox_Add--on-Official_Extension-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white" alt="Firefox Add-on" /></a>
 </p>
 
@@ -155,6 +156,9 @@ Generate structured download links matching numerical or alphabetical patterns:
 ThunderDM includes an official high-performance companion browser extension built with **Manifest V3** for Chromium-based browsers (Chrome, Edge, Brave, Opera, Vivaldi, Arc) and Mozilla Firefox.
 
 <p align="center">
+  <a href="https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe">
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-Get_Extension-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome Web Store" />
+  </a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/thunder-download-manager/">
     <img src="https://img.shields.io/badge/Mozilla_Firefox-Get_Extension-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white" alt="Firefox Add-on" />
   </a>

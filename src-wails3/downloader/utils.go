@@ -222,6 +222,8 @@ type DownloadExtraOptions struct {
 	Referer        string
 	Cookies        string
 	CleanURL       string
+	Category       string
+	Queue          string
 	ShowCompletion *bool
 }
 
@@ -312,6 +314,20 @@ func parseOptionTag(tag string, opts *DownloadExtraOptions) {
 			opts.Cookies = unescaped
 		} else {
 			opts.Cookies = val
+		}
+	} else if strings.HasPrefix(tag, "category=") {
+		val := strings.TrimPrefix(tag, "category=")
+		if unescaped, err := neturl.QueryUnescape(val); err == nil {
+			opts.Category = unescaped
+		} else {
+			opts.Category = val
+		}
+	} else if strings.HasPrefix(tag, "queue=") {
+		val := strings.TrimPrefix(tag, "queue=")
+		if unescaped, err := neturl.QueryUnescape(val); err == nil {
+			opts.Queue = unescaped
+		} else {
+			opts.Queue = val
 		}
 	} else if strings.HasPrefix(tag, "show_completion=") || strings.HasPrefix(tag, "showCompletion=") || strings.HasPrefix(tag, "showCompletionWindow=") {
 		val := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(tag, "showCompletionWindow="), "showCompletion="), "show_completion=")

@@ -69,6 +69,8 @@ func NewTaskController(wailsCtx context.Context, id, url, savePath, filename str
 	var authUser, authPass, userAgent, referer, cookies string
 	showCompletion := true
 
+	var protoStr string = "Auto"
+
 	for _, opt := range opts {
 		if opt == nil {
 			continue
@@ -80,6 +82,9 @@ func NewTaskController(wailsCtx context.Context, id, url, savePath, filename str
 				limitBytes = *v
 			}
 		case DownloadExtraOptions:
+			if v.Protocol != "" {
+				protoStr = v.Protocol
+			}
 			if v.ShowCompletion != nil {
 				showCompletion = *v.ShowCompletion
 			}
@@ -183,6 +188,7 @@ func NewTaskController(wailsCtx context.Context, id, url, savePath, filename str
 			Cookies:          cookies,
 			Status:           StatusPending,
 			ShowCompletion:   showCompletion,
+			Protocol:         protoStr,
 			Chunks:           make([]*ChunkState, 0),
 		},
 	}
@@ -1009,8 +1015,10 @@ func (tc *TaskController) emitCurrentProgress() {
 	payload := ProgressPayload{
 		ID:              taskID,
 		TaskID:          taskID,
+		URL:             tc.State.URL,
 		Filename:        tc.State.Filename,
 		SavePath:        tc.State.SavePath,
+		Protocol:        tc.State.Protocol,
 		Status:          status,
 		DownloadedBytes: totalDownloaded,
 		Downloaded:      totalDownloaded,
@@ -1161,8 +1169,10 @@ func (tc *TaskController) progressEmitter() {
 			payload := ProgressPayload{
 				ID:               taskID,
 				TaskID:           taskID,
+				URL:              tc.State.URL,
 				Filename:         tc.State.Filename,
 				SavePath:         tc.State.SavePath,
+				Protocol:         tc.State.Protocol,
 				Status:           status,
 				DownloadedBytes:  totalDownloaded,
 				Downloaded:       totalDownloaded,
@@ -1322,8 +1332,10 @@ func (tc *TaskController) finalizeDownload() {
 		application.Get().Event.Emit("download-progress", ProgressPayload{
 			ID:               tc.State.ID,
 			TaskID:           tc.State.ID,
+			URL:              tc.State.URL,
 			Filename:         tc.State.Filename,
 			SavePath:         tc.State.SavePath,
+			Protocol:         tc.State.Protocol,
 			Status:           StatusFinished,
 			DownloadedBytes:  finalDL,
 			Downloaded:       finalDL,
@@ -1343,6 +1355,7 @@ func (tc *TaskController) finalizeDownload() {
 	payload := map[string]interface{}{
 		"id":                tc.State.ID,
 		"task_id":           tc.State.ID,
+		"url":               tc.State.URL,
 		"filename":          tc.State.Filename,
 		"save_path":         tc.State.SavePath,
 		"dest_file_path":    tc.State.DestFilePath,
@@ -1408,8 +1421,10 @@ func (tc *TaskController) Pause() error {
 			application.Get().Event.Emit("download-progress", ProgressPayload{
 				ID:               tc.State.ID,
 				TaskID:           tc.State.ID,
+				URL:              tc.State.URL,
 				Filename:         tc.State.Filename,
 				SavePath:         tc.State.SavePath,
+				Protocol:         tc.State.Protocol,
 				Status:           StatusPaused,
 				DownloadedBytes:  state["downloaded"].(int64),
 				Downloaded:       state["downloaded"].(int64),
@@ -1457,8 +1472,10 @@ func (tc *TaskController) Cancel() error {
 			application.Get().Event.Emit("download-progress", ProgressPayload{
 				ID:               tc.State.ID,
 				TaskID:           tc.State.ID,
+				URL:              tc.State.URL,
 				Filename:         tc.State.Filename,
 				SavePath:         tc.State.SavePath,
+				Protocol:         tc.State.Protocol,
 				Status:           StatusCanceled,
 				DownloadedBytes:  state["downloaded"].(int64),
 				Downloaded:       state["downloaded"].(int64),

@@ -701,9 +701,12 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       setDownloads((prev) => {
         let changed = false;
+        const handledIds = new Set<string>();
+
         const next = prev.map((d) => {
           const payload = updates.get(d.id);
           if (!payload) return d;
+          handledIds.add(d.id);
           changed = true;
 
           const isFinished = payload.status === 'Finished';
@@ -754,7 +757,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             : (d.size || 0);
 
           const updatedFilename = payload.filename || d.name;
-          const detectedCat = detectCategory(updatedFilename || d.url, d.protocol);
+          const detectedCat = detectCategory(updatedFilename || d.url, d.protocol || payload.protocol);
           const updatedCat = (d.category && d.category !== 'All' && !((d.category === 'Programs' || d.category === 'Documents') && (detectedCat === 'Videos' || detectedCat === 'Torrents' || detectedCat === 'Compressed')))
             ? d.category
             : detectedCat;
@@ -802,6 +805,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             ...d,
             name: updatedFilename,
             category: updatedCat,
+            url: payload.url || d.url,
             downloaded: finalDL,
             size: finalSize,
             speed: finalSpeed,
@@ -814,6 +818,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             speedLimit: payload.speed_limit !== undefined ? payload.speed_limit : d.speedLimit,
             proxyUsed: payload.proxy_used !== undefined ? payload.proxy_used : d.proxyUsed,
             errorMessage: payload.error_message || d.errorMessage,
+            protocol: payload.protocol || d.protocol,
             dateCompleted: finishTime,
             endTime: finishTime,
             chunks: (payload.chunks || []).map((c: any) => ({
@@ -835,9 +840,135 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           return updatedItem;
         });
 
+        // Auto-discover newly added downloads that were not yet in state
+        const newItems: DownloadItem[] = [];
+        updates.forEach((payload, taskId) => {
+          if (!handledIds.has(taskId) && !prev.some((d) => d.id === taskId)) {
+            changed = true;
+            handledIds.add(taskId);
+
+            const isFinished = payload.status === 'Finished';
+            if (isFinished) {
+              finishedIds.push(taskId);
+              hadTerminalChange = true;
+            } else if (payload.status === 'Error' || payload.status === 'Canceled' || payload.status === 'Paused') {
+              hadTerminalChange = true;
+            }
+
+            const incomingDL = payload.downloaded_bytes !== undefined ? payload.downloaded_bytes : (payload.downloaded !== undefined ? payload.downloaded : 0);
+            const incomingTotal = payload.total_bytes !== undefined ? payload.total_bytes : (payload.total_size !== undefined ? payload.total_size : 0);
+
+            let rawFilename = payload.filename || '';
+            if (!rawFilename && payload.url) {
+              try {
+                const urlObj = new URL(payload.url);
+                rawFilename = urlObj.pathname.split('/').pop() || '';
+              } catch {
+                rawFilename = payload.url.split('/').pop()?.split('?')[0] || '';
+              }
+            }
+            if (!rawFilename) rawFilename = 'download';
+
+            const detectedCat = detectCategory(rawFilename || payload.url, payload.protocol);
+            const updatedCat = (payload.category && payload.category !== 'All' && !((payload.category === 'Programs' || payload.category === 'Documents') && (detectedCat === 'Videos' || detectedCat === 'Torrents' || detectedCat === 'Compressed')))
+              ? payload.category
+              : detectedCat;
+
+            let targetSave = payload.save_path || payload.savePath || globalSettingsRef.current.downloadPath || defaultSettings.downloadPath;
+            const isRel = !targetSave || (!targetSave.includes(':') && !targetSave.startsWith('/') && !targetSave.startsWith('\\\\'));
+            if (isRel) {
+              const base = globalSettingsRef.current.downloadPath || defaultSettings.downloadPath;
+              if (base) {
+                const isWin = base.includes('\\') || (!base.includes('/') && /^[a-zA-Z]:/.test(base));
+                const sep = isWin ? '\\' : '/';
+                const cleanBase = base.replace(/[\/\\]+$/, '');
+                targetSave = targetSave ? `${cleanBase}${sep}${targetSave}` : cleanBase;
+              }
+            }
+
+            let timeLeftStr = 'Calculating...';
+            if (payload.status === 'Paused') {
+              timeLeftStr = 'Paused';
+            } else if (payload.status === 'Canceled') {
+              timeLeftStr = '-';
+            } else if (payload.status === 'Error') {
+              timeLeftStr = 'Error';
+            } else if (isFinished) {
+              timeLeftStr = '-';
+            } else if (payload.eta !== undefined) {
+              if (payload.eta === 0) timeLeftStr = '0s';
+              else {
+                const h = Math.floor(payload.eta / 3600);
+                const m = Math.floor((payload.eta % 3600) / 60);
+                const s = Math.floor(payload.eta % 60);
+                const parts: string[] = [];
+                if (h > 0) parts.push(`${h}h`);
+                if (m > 0) parts.push(`${m}m`);
+                if (s > 0) parts.push(`${s}s`);
+                timeLeftStr = parts.join(' ') || '0s';
+              }
+            } else if (payload.time_left !== undefined) {
+              timeLeftStr = payload.time_left;
+            }
+
+            let resumeSupp: 'Yes' | 'No' | 'Unknown' = 'Unknown';
+            if (payload.resume_support !== undefined && payload.resume_support !== null) {
+              resumeSupp = (payload.resume_support === 'Yes' || payload.resume_support === true) ? 'Yes' : 'No';
+            } else if (payload.resumable !== undefined && payload.resumable !== null) {
+              resumeSupp = payload.resumable ? 'Yes' : 'No';
+            } else if (payload.accept_ranges !== undefined && payload.accept_ranges !== null) {
+              resumeSupp = payload.accept_ranges ? 'Yes' : 'No';
+            }
+
+            const finishTime = isFinished ? new Date().toISOString() : undefined;
+            const finalSpeed = isFinished || payload.status === 'Paused' || payload.status === 'Canceled' || payload.status === 'Error' ? 0 : (payload.speed || 0);
+
+            const newItem: DownloadItem = {
+              id: taskId,
+              name: rawFilename,
+              category: updatedCat,
+              url: payload.url || '',
+              size: incomingTotal >= 0 ? incomingTotal : 0,
+              downloaded: incomingDL >= 0 ? incomingDL : 0,
+              status: (payload.status as any) || 'Downloading',
+              speed: finalSpeed,
+              timeLeft: isFinished ? '-' : timeLeftStr,
+              dateAdded: new Date().toISOString(),
+              dateCompleted: finishTime,
+              endTime: finishTime,
+              queue: payload.queue || '',
+              savePath: targetSave,
+              resumeSupport: resumeSupp,
+              threadCount: (payload.thread_count && payload.thread_count > 0) ? payload.thread_count : ((payload as any).threadCount || globalSettingsRef.current.defaultThreadCount || 8),
+              speedLimit: payload.speed_limit !== undefined ? payload.speed_limit : null,
+              proxyUsed: payload.proxy_used,
+              errorMessage: payload.error_message || payload.error,
+              protocol: payload.protocol,
+              chunks: (payload.chunks || []).map((c: any) => ({
+                id: c.id,
+                status: (c.status as any) || 'Downloading',
+                downloaded: c.downloaded,
+                total: c.total,
+              })),
+            };
+
+            const incomingChecksum = payload.given_checksum || payload.givenCheckSum || payload.expected_checksum || payload.expectedChecksum;
+            if (incomingChecksum && incomingChecksum.trim()) {
+              newItem.givenCheckSum = incomingChecksum.trim();
+              newItem.expectedChecksum = incomingChecksum.trim();
+            }
+
+            newItems.push(newItem);
+          }
+        });
+
         if (!changed) return prev;
-        downloadsRef.current = next;
-        return next;
+        const result = newItems.length > 0 ? [...newItems, ...next] : next;
+        downloadsRef.current = result;
+        if (newItems.length > 0) {
+          saveToThunderDB('downloads', result);
+        }
+        return result;
       });
 
       if (finishedIds.length > 0) {
@@ -885,7 +1016,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             progressFlushTimerRef.current = setTimeout(() => {
               progressFlushTimerRef.current = null;
               flushProgressBatch();
-            }, 250); // Responsive 250ms batching for smooth progress without CPU saturation
+            }, 100); // Snappy 100ms batching for smooth real-time table progress
           }
         });
 
@@ -931,10 +1062,10 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const prev = downloadsRef.current || [];
           const existingIndex = prev.findIndex((d) => d.id === payload.id);
           if (existingIndex >= 0) {
-            // Already present in state (e.g. from addBatchDownloads or newDownload modal), do not recreate or flood DB
+            // Already present in state, update any missing metadata if necessary
             return;
           }
-          const filename = payload.filename || payload.url.split('/').pop() || 'download';
+          const filename = payload.filename || (payload.url ? payload.url.split('/').pop()?.split('?')[0] : '') || 'download';
           const detected = detectCategory(filename || payload.url, payload.protocol);
           const cat = (payload.category && payload.category !== 'All' && !(payload.category === 'Documents' && detected !== 'Documents'))
             ? payload.category
@@ -956,15 +1087,16 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             id: payload.id,
             name: filename,
             category: cat,
-            url: payload.url,
-            size: 0,
-            downloaded: 0,
-            status: 'Downloading',
-            speed: 0,
+            url: payload.url || '',
+            size: payload.total_size || payload.total_bytes || 0,
+            downloaded: payload.downloaded || payload.downloaded_bytes || 0,
+            status: (payload.status as any) || 'Downloading',
+            speed: payload.speed || 0,
             timeLeft: 'Calculating...',
             dateAdded: new Date().toISOString(),
             queue: payload.queue || '',
             savePath: targetSave,
+            protocol: payload.protocol,
             resumeSupport: (payload.resume_support === 'Yes' || payload.resume_support === 'No')
               ? payload.resume_support
               : (payload.resumable !== undefined
