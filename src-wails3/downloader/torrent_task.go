@@ -126,19 +126,25 @@ func (c *TorrentTaskController) Start() {
 		return
 	}
 
-	// If a previous metadata probe or task left this torrent in the global client, drop it first so it uses the real saveDir storage
+	// Check if this torrent is already present in the global client (e.g. paused active session)
 	if existing, ok := client.Torrent(spec.InfoHash); ok && existing != nil {
-		existing.Drop()
+		t = existing
+		t.AllowDataDownload()
+		t.AddTrackers(DefaultPublicTrackers)
+	} else {
+		spec.Storage = NewThunderTorrentStorage(saveDir)
+		spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
+		t, _, addErr = client.AddTorrentSpec(spec)
+
+		if addErr != nil || t == nil {
+			c.failTask(fmt.Sprintf("Failed to add torrent to download client: %v", addErr))
+			return
+		}
 	}
 
-	spec.Storage = NewThunderTorrentStorage(saveDir)
-	spec.Trackers = append(spec.Trackers, DefaultPublicTrackers...)
-	t, _, addErr = client.AddTorrentSpec(spec)
-
-	if addErr != nil || t == nil {
-		c.failTask(fmt.Sprintf("Failed to add torrent to download client: %v", addErr))
-		return
-	}
+	c.mu.Lock()
+	c.torrent = t
+	c.mu.Unlock()
 
 	// Tell client to start peer search and piece download if metadata is already available
 	t.AddTrackers(DefaultPublicTrackers)
@@ -150,12 +156,11 @@ func (c *TorrentTaskController) Start() {
 		c.totalSize = t.Length()
 		c.mu.Unlock()
 		_ = storage.UpdateDownloadMetadata(c.id, c.filename, c.totalSize)
+
+		// Force verification of existing downloaded pieces on disk so resume picks up where it left off
+		_ = t.VerifyDataContext(c.ctx)
 		t.DownloadAll()
 	}
-
-	c.mu.Lock()
-	c.torrent = t
-	c.mu.Unlock()
 
 	// Launch background goroutine to handle metadata completion when ready
 	gotInfoCh := t.GotInfo()
@@ -174,9 +179,13 @@ func (c *TorrentTaskController) Start() {
 				c.mu.Unlock()
 
 				_ = storage.UpdateDownloadMetadata(c.id, c.filename, c.totalSize)
+
+				// Verify existing data on disk so previously downloaded pieces are recognized
+				_ = t.VerifyDataContext(c.ctx)
+
 				t.DownloadAll()
 				c.emitProgress()
-				log.Printf("[TorrentTask] Metadata resolved for %s: %s (Total: %d bytes, Pieces: %d)\n", c.id, c.filename, c.totalSize, t.NumPieces())
+				log.Printf("[TorrentTask] Metadata resolved for %s: %s (Total: %d bytes, Pieces: %d, Completed: %d bytes)\n", c.id, c.filename, c.totalSize, t.NumPieces(), t.BytesCompleted())
 			}
 		}
 	}()
@@ -423,6 +432,12 @@ func (c *TorrentTaskController) Pause() error {
 	if c.cancel != nil {
 		c.cancel()
 	}
+	if c.torrent != nil {
+		c.torrent.DisallowDataDownload()
+		if c.torrent.Info() != nil {
+			c.torrent.CancelPieces(0, c.torrent.NumPieces())
+		}
+	}
 	c.mu.Unlock()
 
 	_ = storage.UpdateDownloadProgress(c.id, c.downloaded, c.totalSize, string(StatusPaused), "", nil)
@@ -440,6 +455,7 @@ func (c *TorrentTaskController) Cancel() error {
 	}
 	if c.torrent != nil {
 		c.torrent.Drop()
+		c.torrent = nil
 	}
 	c.mu.Unlock()
 

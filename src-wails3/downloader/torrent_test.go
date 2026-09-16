@@ -133,4 +133,48 @@ func TestNewThunderTorrentStorage(t *testing.T) {
 	}
 }
 
+func TestTorrentTaskControllerPauseResume(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "thunder_test_pause_resume_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	task := NewTorrentTaskController(
+		nil,
+		"test-pause-resume",
+		"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=TestFile.iso",
+		tempDir,
+		"TestFile.iso",
+		8,
+		nil,
+		DownloadExtraOptions{Protocol: "Torrent"},
+	)
+
+	if task == nil {
+		t.Fatal("expected task controller")
+	}
+
+	task.mu.Lock()
+	task.status = StatusDownloading
+	task.downloaded = 10485760 // 10 MB
+	task.totalSize = 104857600  // 100 MB
+	task.mu.Unlock()
+
+	err = task.Pause()
+	if err != nil {
+		t.Fatalf("Pause failed: %v", err)
+	}
+
+	st := task.GetState()
+	if st["status"] != StatusPaused {
+		t.Errorf("expected status %v, got %v", StatusPaused, st["status"])
+	}
+	if st["downloaded"] != int64(10485760) {
+		t.Errorf("expected downloaded 10MB, got %v", st["downloaded"])
+	}
+}
+
+
+
 
