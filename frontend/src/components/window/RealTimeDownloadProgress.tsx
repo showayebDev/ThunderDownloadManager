@@ -589,7 +589,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
         threadCount: threadCount || defaultThreadCount || 8,
         speedLimit: currentLimitBytes,
         speed_limit: currentLimitBytes,
-        protocol: isYTDLP ? 'Yt-DLP' : null,
+        protocol: isYTDLP ? 'Yt-DLP' : isTorrent ? 'Torrent' : null,
       });
     } catch (err) {
       console.error('Failed to retry download:', err);
@@ -622,7 +622,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
           threadCount: threadCount || defaultThreadCount || 8,
           speedLimit: currentLimitBytes,
           speed_limit: currentLimitBytes,
-          protocol: isYTDLP ? 'Yt-DLP' : null,
+          protocol: isYTDLP ? 'Yt-DLP' : isTorrent ? 'Torrent' : null,
         });
       } else {
         setStatus('Paused');
