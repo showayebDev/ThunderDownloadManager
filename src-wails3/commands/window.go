@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -363,7 +364,9 @@ func (c *WindowCommand) OpenRealtimeProgressWindowCommand(payload map[string]int
 
 			hiddenDownloadsMu.Lock()
 			delete(hiddenDownloads, taskId)
+			delete(trayMenuItems, taskId)
 			hiddenDownloadsMu.Unlock()
+			c.DebouncedRebuildTrayMenu()
 		}
 
 		windowName := "realtime-progress"
@@ -477,6 +480,12 @@ func (c *WindowCommand) OpenDownloadCompletedWindowCommand(payload map[string]in
 	downloader.LatestDownloadCompletedPayload = payload
 	completedPayloadsMu.Unlock()
 
+	hiddenDownloadsMu.Lock()
+	delete(hiddenDownloads, taskId)
+	delete(trayMenuItems, taskId)
+	hiddenDownloadsMu.Unlock()
+	c.DebouncedRebuildTrayMenu()
+
 	if c.app != nil {
 		windowName := "download-completed-" + taskId
 		urlPath := "/#/download-completed?id=" + taskId
@@ -563,6 +572,12 @@ func (c *WindowCommand) ShowDownloadCompletedWindow(payload map[string]interface
 	downloader.LatestDownloadCompletedPayload = payload
 	completedPayloadsMu.Unlock()
 
+	hiddenDownloadsMu.Lock()
+	delete(hiddenDownloads, taskId)
+	delete(trayMenuItems, taskId)
+	hiddenDownloadsMu.Unlock()
+	c.DebouncedRebuildTrayMenu()
+
 	if c.app != nil {
 		completedWindowCreationMu.Lock()
 		defer completedWindowCreationMu.Unlock()
@@ -637,6 +652,21 @@ func (c *WindowCommand) SetSystray(tray *application.SystemTray) {
 	})
 }
 
+func (c *WindowCommand) isRealtimeWindowVisible(taskId string) bool {
+	if c.app == nil {
+		return false
+	}
+	if taskId != "" {
+		if w, ok := c.app.Window.Get("realtime-progress-" + taskId); ok && w != nil {
+			return w.IsVisible()
+		}
+	}
+	if w, ok := c.app.Window.Get("realtime-progress"); ok && w != nil {
+		return w.IsVisible()
+	}
+	return false
+}
+
 func truncateFilenameWords(name string, maxLen int) string {
 	if len(name) <= maxLen {
 		return name
@@ -648,35 +678,90 @@ func truncateFilenameWords(name string, maxLen int) string {
 }
 
 func (c *WindowCommand) GetActiveTrayDownloads() []*HiddenRealtimeDownload {
-	engineTasks := downloader.GetEngine().GetActiveTasksInfo()
-
 	hiddenDownloadsMu.Lock()
 	defer hiddenDownloadsMu.Unlock()
 
-	resultMap := make(map[string]*HiddenRealtimeDownload)
-
-	for _, t := range engineTasks {
-		resultMap[t.ID] = &HiddenRealtimeDownload{
-			ID:       t.ID,
-			Filename: t.Filename,
-			Progress: t.Progress,
+	// 1. Clean up any completed, canceled, errored, or currently visible downloads from hiddenDownloads map
+	for id := range hiddenDownloads {
+		state := downloader.GetEngine().GetTaskState(id)
+		if state == nil {
+			delete(hiddenDownloads, id)
+			delete(trayMenuItems, id)
+			continue
 		}
-		if h, ok := hiddenDownloads[t.ID]; ok && h != nil {
-			h.Filename = t.Filename
-			h.Progress = t.Progress
+		status, _ := state["status"].(downloader.DownloadStatus)
+		if status == "" {
+			if s, ok := state["status"].(string); ok {
+				status = downloader.DownloadStatus(s)
+			}
+		}
+		if status == downloader.StatusFinished || status == downloader.StatusCanceled || status == downloader.StatusError {
+			delete(hiddenDownloads, id)
+			delete(trayMenuItems, id)
+			continue
+		}
+		if c.isRealtimeWindowVisible(id) {
+			delete(hiddenDownloads, id)
+			delete(trayMenuItems, id)
+			continue
 		}
 	}
 
-	for id, h := range hiddenDownloads {
-		if _, ok := resultMap[id]; !ok {
-			resultMap[id] = h
+	// 2. Discover all active engine tasks where real-time progress window is not visible
+	activeTasks := downloader.GetEngine().GetActiveTasksInfo()
+	for _, at := range activeTasks {
+		if at.ID == "" {
+			continue
+		}
+		if c.isRealtimeWindowVisible(at.ID) {
+			delete(hiddenDownloads, at.ID)
+			delete(trayMenuItems, at.ID)
+			continue
+		}
+		if existing, ok := hiddenDownloads[at.ID]; ok {
+			existing.Filename = at.Filename
+			existing.Progress = at.Progress
+		} else {
+			hiddenDownloads[at.ID] = &HiddenRealtimeDownload{
+				ID:       at.ID,
+				Filename: at.Filename,
+				Progress: at.Progress,
+			}
 		}
 	}
 
-	items := make([]*HiddenRealtimeDownload, 0, len(resultMap))
-	for _, item := range resultMap {
+	// 3. Assemble and return items
+	items := make([]*HiddenRealtimeDownload, 0, len(hiddenDownloads))
+	for id, item := range hiddenDownloads {
+		if c.isRealtimeWindowVisible(id) {
+			continue
+		}
+		state := downloader.GetEngine().GetTaskState(id)
+		if state != nil {
+			if fn, ok := state["filename"].(string); ok && fn != "" {
+				item.Filename = fn
+			}
+			var dl, tot int64
+			if v, ok := state["downloaded"].(int64); ok {
+				dl = v
+			}
+			if v, ok := state["total_size"].(int64); ok {
+				tot = v
+			}
+			if tot > 0 {
+				item.Progress = int((dl * 100) / tot)
+				if item.Progress > 100 {
+					item.Progress = 100
+				}
+			}
+		}
 		items = append(items, item)
 	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].ID < items[j].ID
+	})
+
 	return items
 }
 
@@ -750,10 +835,14 @@ func (c *WindowCommand) UpdateLiveTrayLabels() {
 
 	hiddenDownloadsMu.RLock()
 	currentCount := len(trayMenuItems)
-	needsRebuild := len(items) != currentCount
+	displayCount := len(items)
+	if displayCount > 8 {
+		displayCount = 8
+	}
+	needsRebuild := displayCount != currentCount
 	if !needsRebuild {
-		for _, item := range items {
-			if _, ok := trayMenuItems[item.ID]; !ok {
+		for i := 0; i < displayCount; i++ {
+			if _, ok := trayMenuItems[items[i].ID]; !ok {
 				needsRebuild = true
 				break
 			}
@@ -769,7 +858,8 @@ func (c *WindowCommand) UpdateLiveTrayLabels() {
 	hiddenDownloadsMu.RLock()
 	defer hiddenDownloadsMu.RUnlock()
 
-	for _, item := range items {
+	for i := 0; i < displayCount; i++ {
+		item := items[i]
 		if menuItem, ok := trayMenuItems[item.ID]; ok && menuItem != nil {
 			displayName := truncateFilenameWords(item.Filename, 26)
 			newLabel := fmt.Sprintf("[%d%%] %s", item.Progress, displayName)
@@ -794,7 +884,7 @@ func (c *WindowCommand) RebuildTrayMenu() {
 	trayMenuItems = make(map[string]*application.MenuItem)
 	hiddenDownloadsMu.Unlock()
 
-	// 1. Hidden / Active Realtime Downloads (KEEP AT THE TOP OF MENU, capped at 8)
+	// 1. Hidden Realtime Downloads (Max 8 items, '...' for more)
 	if len(items) > 0 {
 		displayItems := items
 		if len(displayItems) > 8 {
@@ -846,7 +936,8 @@ func (c *WindowCommand) RebuildTrayMenu() {
 			})
 		}
 		if len(items) > 8 {
-			trayMenu.Add(fmt.Sprintf("... and %d more active downloads", len(items)-8))
+			moreItem := trayMenu.Add("...")
+			moreItem.SetEnabled(false)
 		}
 		trayMenu.AddSeparator()
 	}
