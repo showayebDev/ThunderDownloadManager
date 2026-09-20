@@ -591,17 +591,47 @@ export const DownloadStartConfirmation: React.FC = () => {
       const ytDlpHosts = [
         'youtube.com',
         'youtu.be',
+        'music.youtube.com',
         'vimeo.com',
         'tiktok.com',
+        'douyin.com',
+        'kuaishou.com',
         'instagram.com',
+        'threads.net',
         'facebook.com',
         'fb.watch',
+        'fb.com',
         'twitter.com',
         'x.com',
         'dailymotion.com',
+        'dai.ly',
         'bilibili.com',
+        'bilibili.tv',
+        'bilibili.co',
+        'bili.im',
+        'bilibili.to',
+        'bilibili.global',
         'soundcloud.com',
+        'bandcamp.com',
+        'mixcloud.com',
         'twitch.tv',
+        'reddit.com',
+        'streamable.com',
+        'loom.com',
+        'pinterest.com',
+        'pin.it',
+        'vk.com',
+        'ok.ru',
+        'rumble.com',
+        'odysee.com',
+        'bitchute.com',
+        'weibo.com',
+        'nicovideo.jp',
+        'coub.com',
+        'patreon.com',
+        'vlive.tv',
+        'ted.com',
+        'archive.org',
       ];
       const lowerUrl = url.trim().toLowerCase();
       const isTorrent =
@@ -613,7 +643,19 @@ export const DownloadStartConfirmation: React.FC = () => {
         cleanFilename.toLowerCase().endsWith('.torrent');
       const isYTDLP =
         !isTorrent &&
-        (protocol === 'Yt-DLP' || ytDlpHosts.some((h) => lowerUrl.includes(h)));
+        (protocol === 'Yt-DLP' ||
+          ytDlpHosts.some((h) => lowerUrl.includes(h)) ||
+          lowerUrl.includes('/video/') ||
+          lowerUrl.includes('/videos/') ||
+          lowerUrl.includes('/shorts/') ||
+          lowerUrl.includes('/reel/') ||
+          lowerUrl.includes('/reels/') ||
+          lowerUrl.includes('/bangumi/') ||
+          (lowerUrl.includes('/watch') &&
+            (lowerUrl.includes('stream') ||
+              lowerUrl.includes('media') ||
+              lowerUrl.includes('tv') ||
+              lowerUrl.includes('bilibili'))));
       const isHLS =
         !isTorrent &&
         !isYTDLP &&
@@ -654,11 +696,13 @@ export const DownloadStartConfirmation: React.FC = () => {
           !cleanFilename ||
           cleanFilename === 'watch' ||
           cleanFilename.includes('?') ||
-          cleanFilename === 'video'
+          cleanFilename === 'video' ||
+          cleanFilename.toLowerCase().endsWith('.html') ||
+          cleanFilename.toLowerCase().endsWith('.htm') ||
+          !cleanFilename.includes('.')
         ) {
           cleanFilename = 'video.mp4';
         }
-        if (!cleanFilename.includes('.')) cleanFilename += '.mp4';
       } else if (isHLS) {
         setProtocol('HLS');
         if (cleanFilename.toLowerCase().endsWith('.m3u8')) {
@@ -919,7 +963,8 @@ export const DownloadStartConfirmation: React.FC = () => {
     const ref = customOpts.referer !== undefined ? customOpts.referer : refererPage;
     const ck = customOpts.cookies !== undefined ? customOpts.cookies : cookies;
 
-    const fetchKey = `${activeUrl.trim()}|${u || ''}|${p || ''}|${ua || ''}|${ref || ''}|${
+    const protoToFetch = customOpts.protocol !== undefined ? customOpts.protocol : protocol;
+    const fetchKey = `${activeUrl.trim()}|${protoToFetch || ''}|${u || ''}|${p || ''}|${ua || ''}|${ref || ''}|${
       ck || ''
     }`;
     if (!force && (fetchKey === lastFetchedKeyRef.current || inFlightFetchRef.current)) {
@@ -942,6 +987,7 @@ export const DownloadStartConfirmation: React.FC = () => {
     try {
       const info = await invoke<any>('fetch_file_info_command', {
         url: activeUrl.trim(),
+        protocol: protoToFetch,
         username: u ? u.trim() : undefined,
         password: p ? p.trim() : undefined,
         userAgent: ua ? ua.trim() : undefined,
@@ -1630,9 +1676,25 @@ export const DownloadStartConfirmation: React.FC = () => {
                     setProtocol(newProto);
                     if (newProto === 'Yt-DLP') {
                       setCategory('Videos');
-                      checkYtdlpStatus();
+                      checkYtdlpStatus(true);
+                      setName((prev) => {
+                        if (
+                          !prev ||
+                          prev === 'download' ||
+                          prev.toLowerCase().endsWith('.html') ||
+                          prev.toLowerCase().endsWith('.htm') ||
+                          !prev.includes('.')
+                        ) {
+                          return 'video.mp4';
+                        }
+                        return prev;
+                      });
+                      handleRefreshInfo(url.trim(), { protocol: 'Yt-DLP' }, true);
                     } else if (newProto === 'Torrent') {
                       setCategory('Torrents');
+                      handleRefreshInfo(url.trim(), { protocol: 'Torrent' }, true);
+                    } else {
+                      handleRefreshInfo(url.trim(), { protocol: newProto }, true);
                     }
                   }}
                   className="bg-transparent text-foreground text-xs font-semibold outline-none cursor-pointer pr-2 appearance-none"

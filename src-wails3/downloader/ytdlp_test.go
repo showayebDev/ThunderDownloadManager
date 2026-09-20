@@ -19,6 +19,11 @@ func TestIsYTDLPURL(t *testing.T) {
 		{"https://www.tiktok.com/@user/video/123456789", true},
 		{"https://www.facebook.com/watch/?v=10153231379946729", true},
 		{"https://x.com/user/status/123456789", true},
+		{"https://www.bilibili.tv/en/video/4791167945015296", true},
+		{"https://www.bilibili.com/video/BV1xx411c7mD", true},
+		{"https://bili.im/video/123", true},
+		{"https://www.instagram.com/reel/C12345/", true},
+		{"https://soundcloud.com/artist/track", true},
 		{"https://example.com/file.iso", false},
 		{"https://example.com/stream/index.m3u8", false},
 	}

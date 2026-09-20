@@ -48,11 +48,32 @@ export const NewDownloadModal: React.FC = () => {
     }
     if (lower.includes('.m3u8')) return 'HLS';
     const ytDlpHosts = [
-      'youtube.com', 'youtu.be', 'vimeo.com', 'tiktok.com', 
-      'instagram.com', 'facebook.com', 'fb.watch', 'twitter.com', 
-      'x.com', 'dailymotion.com', 'bilibili.com', 'soundcloud.com', 'twitch.tv'
+      'youtube.com', 'youtu.be', 'music.youtube.com',
+      'vimeo.com', 'dailymotion.com', 'dai.ly',
+      'tiktok.com', 'douyin.com', 'kuaishou.com',
+      'instagram.com', 'threads.net',
+      'facebook.com', 'fb.watch', 'fb.com',
+      'twitter.com', 'x.com',
+      'twitch.tv', 'soundcloud.com', 'bandcamp.com', 'mixcloud.com',
+      'bilibili.com', 'bilibili.tv', 'bilibili.co', 'bili.im', 'bilibili.to', 'bilibili.global',
+      'reddit.com', 'streamable.com', 'loom.com',
+      'pinterest.com', 'pin.it',
+      'vk.com', 'ok.ru', 'rumble.com', 'odysee.com', 'bitchute.com',
+      'weibo.com', 'nicovideo.jp', 'coub.com', 'patreon.com',
+      'vlive.tv', 'ted.com', 'archive.org',
     ];
     if (ytDlpHosts.some((h) => lower.includes(h))) return 'Yt-DLP';
+    if (
+      lower.includes('/video/') ||
+      lower.includes('/videos/') ||
+      lower.includes('/shorts/') ||
+      lower.includes('/reel/') ||
+      lower.includes('/reels/') ||
+      lower.includes('/bangumi/') ||
+      (lower.includes('/watch') && (lower.includes('stream') || lower.includes('media') || lower.includes('tv')))
+    ) {
+      return 'Yt-DLP';
+    }
     return null;
   };
 
