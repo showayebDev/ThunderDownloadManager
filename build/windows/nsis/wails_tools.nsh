@@ -14,10 +14,10 @@
     !define INFO_PRODUCTNAME "Thunder Download Manager"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "1.0.5"
+    !define INFO_PRODUCTVERSION "1.1.5"
 !endif
 !ifndef INFO_FILEVERSION
-    !define INFO_FILEVERSION "1.0.5.0"
+    !define INFO_FILEVERSION "1.1.5.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© 2026 Thunder Download Manager"
