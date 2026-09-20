@@ -2272,22 +2272,20 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setQueues(stoppedQueues);
     queuesRef.current = stoppedQueues;
 
-    // 2. Find all active/in-progress and queued tasks to pause (Downloading, Pending, Merging, Queued)
+    // 2. Find all active/in-progress tasks to pause (Downloading, Pending, Merging)
     const currentList = downloadsRef.current || downloads;
-    const activeOrQueuedTasks = currentList.filter(
+    const activeTasks = currentList.filter(
       (d) =>
         d.status === 'Downloading' ||
         d.status === 'Pending' ||
-        d.status === 'Merging' ||
-        d.status === 'Queued'
+        d.status === 'Merging'
     );
 
-    // 3. Set ALL actively downloading/merging/pending and queued items to Paused
+    // 3. Set actively downloading/merging/pending items to Paused; Queued items remain Queued
     const pausedList = currentList.map((d) =>
       d.status === 'Downloading' ||
       d.status === 'Pending' ||
-      d.status === 'Merging' ||
-      d.status === 'Queued'
+      d.status === 'Merging'
         ? { ...d, status: 'Paused' as DownloadStatus, speed: 0, timeLeft: 'Paused' }
         : d
     );
@@ -2308,8 +2306,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // 6. Explicitly pause each individual active task to guarantee context cancellation and close realtime windows
     try {
       await Promise.allSettled([
-        ...activeOrQueuedTasks.map((item) => invoke('pause_download', { id: item.id })),
-        ...activeOrQueuedTasks.map((item) => invoke('close_realtime_progress_window_command', { id: item.id })),
+        ...activeTasks.map((item) => invoke('pause_download', { id: item.id })),
+        ...activeTasks.map((item) => invoke('close_realtime_progress_window_command', { id: item.id })),
       ]);
     } catch {}
   };

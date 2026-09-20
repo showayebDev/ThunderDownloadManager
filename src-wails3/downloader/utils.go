@@ -329,6 +329,18 @@ func parseOptionTag(tag string, opts *DownloadExtraOptions) {
 		} else {
 			opts.Queue = val
 		}
+	} else if strings.HasPrefix(tag, "proto=") || strings.HasPrefix(tag, "protocol=") {
+		val := strings.TrimPrefix(strings.TrimPrefix(tag, "protocol="), "proto=")
+		if unescaped, err := neturl.QueryUnescape(val); err == nil {
+			val = unescaped
+		}
+		if strings.Contains(val, ":") {
+			parts := strings.SplitN(val, ":", 2)
+			opts.Protocol = parts[0]
+			opts.Quality = parts[1]
+		} else if val != "" {
+			opts.Protocol = val
+		}
 	} else if strings.HasPrefix(tag, "show_completion=") || strings.HasPrefix(tag, "showCompletion=") || strings.HasPrefix(tag, "showCompletionWindow=") {
 		val := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(tag, "showCompletionWindow="), "showCompletion="), "show_completion=")
 		b := val == "true" || val == "1"

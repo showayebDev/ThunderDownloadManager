@@ -601,20 +601,28 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 				clen = &sz
 			}
 			return &RemoteFileInfo{
-				Filename:      &fname,
-				Title:         &tInfo.Name,
-				ContentLength: clen,
-				FormattedSize: formatted,
-				AcceptRanges:  true,
-				ContentType:   &ctype,
-				IsTorrent:     true,
-				TorrentFiles:  tInfo.Files,
+				Filename:       &fname,
+				Title:          &tInfo.Name,
+				ContentLength:  clen,
+				FormattedSize:  formatted,
+				AcceptRanges:   true,
+				ContentType:    &ctype,
+				IsTorrent:      true,
+				TorrentFiles:   tInfo.Files,
+				YTDLPInstalled: downloader.NewClient().IsInstalled(),
 			}, nil
 		}
 	}
 
 	// Handle YT-DLP URLs
-	if downloader.IsYTDLPURL(cleanURL) {
+	isYTDLPExplicit := strings.EqualFold(opts.Protocol, "Yt-DLP") ||
+		strings.EqualFold(opts.Protocol, "YT-DLP") ||
+		strings.EqualFold(opts.Protocol, "ytdlp") ||
+		strings.HasPrefix(strings.ToLower(opts.Protocol), "yt-dlp") ||
+		strings.HasPrefix(strings.ToLower(opts.Protocol), "ytdlp")
+	isYTDLP := isYTDLPExplicit || downloader.IsYTDLPURL(cleanURL)
+
+	if isYTDLP {
 		client := downloader.NewClient()
 		ctype := "video/mp4"
 		isInstalled := client.IsInstalled()
@@ -680,13 +688,14 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 			ctype := "application/vnd.apple.mpegurl"
 			fname := extractFilenameHarder(nil, cleanURL, ctype)
 			return &RemoteFileInfo{
-				Filename:      &fname,
-				FormattedSize: fmt.Sprintf("HLS Video (%d segs, %s)", segCount, durStr),
-				AcceptRanges:  true,
-				ContentType:   &ctype,
-				IsHLS:         true,
-				SegmentCount:  segCount,
-				Duration:      dur,
+				Filename:       &fname,
+				FormattedSize:  fmt.Sprintf("HLS Video (%d segs, %s)", segCount, durStr),
+				AcceptRanges:   true,
+				ContentType:    &ctype,
+				IsHLS:          true,
+				SegmentCount:   segCount,
+				Duration:       dur,
+				YTDLPInstalled: downloader.NewClient().IsInstalled(),
 			}, nil
 		}
 	}
@@ -809,18 +818,21 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 			sec := int(dur) % 60
 			fname := extractFilenameHarder(resp, cleanURL, ctype)
 			return &RemoteFileInfo{
-				Filename:      &fname,
-				FormattedSize: fmt.Sprintf("HLS Video (%d segs, %02d:%02d)", segCount, min, sec),
-				AcceptRanges:  true,
-				ContentType:   &ctype,
-				IsHLS:         true,
-				SegmentCount:  segCount,
-				Duration:      dur,
+				Filename:       &fname,
+				FormattedSize:  fmt.Sprintf("HLS Video (%d segs, %02d:%02d)", segCount, min, sec),
+				AcceptRanges:   true,
+				ContentType:    &ctype,
+				IsHLS:          true,
+				SegmentCount:   segCount,
+				Duration:       dur,
+				YTDLPInstalled: downloader.NewClient().IsInstalled(),
 			}, nil
 		}
 	}
 
-	info := &RemoteFileInfo{}
+	info := &RemoteFileInfo{
+		YTDLPInstalled: downloader.NewClient().IsInstalled(),
+	}
 
 	var size int64
 	if cr := resp.Header.Get("Content-Range"); cr != "" {

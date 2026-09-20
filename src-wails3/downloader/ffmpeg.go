@@ -26,8 +26,7 @@ var (
 	cachedFFmpegVersionExp time.Time
 )
 
-// GetFFmpegExecutable finds ThunderDM's own ffmpeg binary (~/.thunderdm/bin, app dir, or bundle dir).
-// It strictly ignores any global/system PATH ffmpeg.
+// GetFFmpegExecutable finds ffmpeg binary in ~/.thunderdm/bin, app dir, bundle dir, or system PATH.
 func GetFFmpegExecutable() string {
 	binName := "ffmpeg"
 	if runtime.GOOS == "windows" {
@@ -60,11 +59,24 @@ func GetFFmpegExecutable() string {
 		}
 	}
 
+	// 3. Fallback to system PATH (e.g. winget, scoop, choco, or system installed ffmpeg)
+	if path, err := exec.LookPath(binName); err == nil && path != "" {
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() && fi.Size() > 0 {
+			return path
+		}
+	}
+	if binName != "ffmpeg" {
+		if path, err := exec.LookPath("ffmpeg"); err == nil && path != "" {
+			if fi, err := os.Stat(path); err == nil && !fi.IsDir() && fi.Size() > 0 {
+				return path
+			}
+		}
+	}
+
 	return ""
 }
 
-// GetFFprobeExecutable finds ThunderDM's own ffprobe binary (~/.thunderdm/bin, app dir, or bundle dir).
-// It strictly ignores any global/system PATH ffprobe.
+// GetFFprobeExecutable finds ffprobe binary in ~/.thunderdm/bin, app dir, bundle dir, or system PATH.
 func GetFFprobeExecutable() string {
 	binName := "ffprobe"
 	if runtime.GOOS == "windows" {
@@ -94,6 +106,20 @@ func GetFFprobeExecutable() string {
 		candidate3 := filepath.Join(dir, "..", "Resources", "bin", binName)
 		if fi, err := os.Stat(candidate3); err == nil && !fi.IsDir() && fi.Size() > 0 {
 			return candidate3
+		}
+	}
+
+	// 3. Fallback to system PATH
+	if path, err := exec.LookPath(binName); err == nil && path != "" {
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() && fi.Size() > 0 {
+			return path
+		}
+	}
+	if binName != "ffprobe" {
+		if path, err := exec.LookPath("ffprobe"); err == nil && path != "" {
+			if fi, err := os.Stat(path); err == nil && !fi.IsDir() && fi.Size() > 0 {
+				return path
+			}
 		}
 	}
 

@@ -45,8 +45,7 @@ type DownloadOptions struct {
 	ExtraArgs  []string
 }
 
-// GetYTDLPExecutable finds ThunderDM's own yt-dlp binary in ~/.thunderdm/bin, app dir, or bundle dir.
-// It strictly ignores any global/system PATH yt-dlp.
+// GetYTDLPExecutable finds yt-dlp binary in ~/.thunderdm/bin, app dir, bundle dir, or system PATH.
 func GetYTDLPExecutable() string {
 	binName := "yt-dlp"
 	if runtime.GOOS == "windows" {
@@ -76,6 +75,20 @@ func GetYTDLPExecutable() string {
 		candidate3 := filepath.Join(exeDir, "..", "Resources", "bin", binName)
 		if fi, err := os.Stat(candidate3); err == nil && !fi.IsDir() && fi.Size() > 0 {
 			return candidate3
+		}
+	}
+
+	// 3. Fallback to system PATH (e.g. CLI or package manager installed yt-dlp)
+	if path, err := exec.LookPath(binName); err == nil && path != "" {
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() && fi.Size() > 0 {
+			return path
+		}
+	}
+	if binName != "yt-dlp" {
+		if path, err := exec.LookPath("yt-dlp"); err == nil && path != "" {
+			if fi, err := os.Stat(path); err == nil && !fi.IsDir() && fi.Size() > 0 {
+				return path
+			}
 		}
 	}
 
@@ -245,17 +258,52 @@ func IsYTDLPURL(urlStr string) bool {
 		return false
 	}
 	host := strings.ToLower(u.Host)
-	domains := []string{
-		"youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
-		"tiktok.com", "instagram.com", "facebook.com", "fb.watch",
-		"twitter.com", "x.com", "twitch.tv", "bilibili.com",
-		"soundcloud.com", "reddit.com", "streamable.com", "loom.com",
+	if host == "" {
+		return false
 	}
+
+	domains := []string{
+		"youtube.com", "youtu.be", "music.youtube.com",
+		"vimeo.com", "dailymotion.com", "dai.ly",
+		"tiktok.com", "douyin.com", "kuaishou.com",
+		"instagram.com", "threads.net",
+		"facebook.com", "fb.watch", "fb.com",
+		"twitter.com", "x.com",
+		"twitch.tv", "soundcloud.com", "bandcamp.com", "mixcloud.com",
+		"bilibili.com", "bilibili.tv", "bilibili.co", "bili.im", "bilibili.to", "bilibili.global",
+		"reddit.com", "streamable.com", "loom.com",
+		"pinterest.com", "pin.it",
+		"vk.com", "ok.ru", "rumble.com", "odysee.com", "bitchute.com",
+		"weibo.com", "nicovideo.jp", "coub.com", "patreon.com",
+		"vlive.tv", "ted.com", "archive.org",
+	}
+
 	for _, d := range domains {
 		if host == d || strings.HasSuffix(host, "."+d) {
 			return true
 		}
 	}
+
+	// Match common video paths on media/streaming hosts
+	path := strings.ToLower(u.Path)
+	if strings.Contains(path, "/video/") ||
+		strings.Contains(path, "/videos/") ||
+		strings.Contains(path, "/shorts/") ||
+		strings.Contains(path, "/reel/") ||
+		strings.Contains(path, "/reels/") ||
+		strings.Contains(path, "/watch") ||
+		strings.Contains(path, "/bangumi/") ||
+		strings.Contains(path, "/clip/") {
+		if strings.Contains(host, "bilibili") ||
+			strings.Contains(host, "video") ||
+			strings.Contains(host, "stream") ||
+			strings.Contains(host, "media") ||
+			strings.Contains(host, "tube") ||
+			strings.Contains(host, "tv") {
+			return true
+		}
+	}
+
 	return false
 }
 

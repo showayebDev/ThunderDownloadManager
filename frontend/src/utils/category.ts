@@ -18,9 +18,19 @@ export const detectCategory = (filenameOrUrl: string, protocol?: string): Catego
 
   // Check media streaming hosts and protocols
   const videoHosts = [
-    'youtube.com', 'youtu.be', 'vimeo.com', 'tiktok.com', 
-    'instagram.com', 'facebook.com', 'fb.watch', 'twitter.com', 
-    'x.com', 'dailymotion.com', 'bilibili.com', 'twitch.tv'
+    'youtube.com', 'youtu.be', 'music.youtube.com',
+    'vimeo.com', 'dailymotion.com', 'dai.ly',
+    'tiktok.com', 'douyin.com', 'kuaishou.com',
+    'instagram.com', 'threads.net',
+    'facebook.com', 'fb.watch', 'fb.com',
+    'twitter.com', 'x.com',
+    'twitch.tv', 'soundcloud.com', 'bandcamp.com', 'mixcloud.com',
+    'bilibili.com', 'bilibili.tv', 'bilibili.co', 'bili.im', 'bilibili.to', 'bilibili.global',
+    'reddit.com', 'streamable.com', 'loom.com',
+    'pinterest.com', 'pin.it',
+    'vk.com', 'ok.ru', 'rumble.com', 'odysee.com', 'bitchute.com',
+    'weibo.com', 'nicovideo.jp', 'coub.com', 'patreon.com',
+    'vlive.tv', 'ted.com', 'archive.org',
   ];
   if (
     videoHosts.some((h) => lower.includes(h)) ||

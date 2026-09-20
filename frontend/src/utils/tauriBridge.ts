@@ -283,11 +283,15 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         return (await DownloadCommand.ProcessNewDownload(args?.url || args || '')) as T;
       case 'fetch_file_info_command': {
         let targetUrl = typeof args === 'string' ? args : (args?.url || '');
+        const proto = args?.protocol || args?.proto || '';
         const u = args?.username || args?.authUsername || '';
         const p = args?.password || args?.authPassword || '';
         const ua = args?.userAgent || args?.user_agent || '';
         const ref = args?.referer || args?.referrer || '';
         const cookie = args?.cookies || args?.cookie || '';
+        if (proto) {
+          targetUrl = `${targetUrl}::proto=${encodeURIComponent(proto)}`;
+        }
         if (u || p) {
           targetUrl = `${targetUrl}::auth=${encodeURIComponent(u)}:${encodeURIComponent(p)}`;
         }
