@@ -7,6 +7,9 @@
 <p align="center">
   <strong>An ultra-fast, modern, multi-threaded download manager with intelligent browser integration, dynamic segmentation, and media streaming support.</strong>
 </p>
+<p align="center">
+<img src="https://komarev.com/ghpvc/?username=showayebDev-ThunderDownloadManager&&label=Repo%20Views&color=blueviolet" alt="Visitors" />
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version" />
@@ -49,11 +52,13 @@ It features a custom high-performance multi-segment download engine that dynamic
 ## ✨ Key Features
 
 ### ⚡ Multi-Threaded Dynamic File Segmentation
+
 - Accelerates download speeds up to 500% by splitting files into dynamic multi-threaded byte-range segments.
 - Real-time connection pooling, zero-allocation network buffers, and automatic chunk reallocation.
 - Full pause, resume, cancel, and restart capabilities with automated file integrity verification.
 
 ### 📦 Advanced Batch Download Engine & Recursive Crawler
+
 - **Pattern & Multi-Wildcard Sequence Generator:** Generate dozens or hundreds of sequential download links using asterisks (`*`) or bracket expressions (`[01-50]`, `[01-50:2]`, `[a-z:2]`).
 - **Multi-Wildcard (`*_*`) Cartesian Product:** Support multiple independent wildcards in a single URL (e.g. `season_*_episode_*.mp4`) with dedicated configuration tabs for each wildcard.
 - **Custom Interval / Step Settings:** Generate odd/even numbers (`1, 3, 5, 7...` with step 2), custom intervals (`0, 5, 10, 15...` with step 5), or alphabetical steps (`a, c, e...`).
@@ -61,51 +66,64 @@ It features a custom high-performance multi-segment download engine that dynamic
 - **Recursive Webpage Link Sniffer & Directory Crawler:** Traverse entire BDIX, FTP, Apache, Nginx, h5ai, and Alist server directories across multiple levels (depth 1 to 5), with subfolder filtering and automatic local directory hierarchy reconstruction.
 
 ### 🎬 High-Resolution Video & Media Streaming Capture
+
 - Capture and download media from **YouTube, Facebook, TikTok, Instagram, Twitter / X, Vimeo, Dailymotion**, and 1,000+ streaming sites with built-in format selection.
 - Interactive quality and format picker (4K, 1080p, 720p, MP3/Audio-only) with automated stream remuxing.
 
 ### 📺 Native HLS / m3u8 Stream Downloader
+
 - Custom high-speed `.m3u8` playlist parser, AES-128 decryptor, and multi-segment stream assembly engine for live and VOD streams.
 
 ### 🎨 Rich Appearance & 9 Handcrafted Theme Palettes
-- **9 Handcrafted Theme Palettes:** Choose between *Zinc (Monochrome), OLED (Pure Black), Midnight (Deep Navy), Violet, Emerald, Rose, Amber, Cyan, and Classic Blue*.
+
+- **9 Handcrafted Theme Palettes:** Choose between _Zinc (Monochrome), OLED (Pure Black), Midnight (Deep Navy), Violet, Emerald, Rose, Amber, Cyan, and Classic Blue_.
 - **Custom Typography & Sizing:** Select any installed system font with live rendering preview, adjust base font size (9px – 18px), and toggle compact top bar and icon labels.
 
 ### 🌍 Multi-Language Interface (i18n)
+
 - Comprehensive internationalization supporting **English, বাংলা (Bengali), Español (Spanish), Français (French), and Deutsch (German)** with instantaneous language switching.
 
 ### 💾 Pure SQLite Relational Database Engine
+
 - **Zero JSON Config Files:** 100% centralized, robust persistence using pure Go SQLite (`~/.thunderdm/thunderdm.db`).
 - Atomic ACID transactions, automatic schema migrations, WAL mode for lightning-fast reads/writes, and zero data corruption.
 
 ### 🌐 System Proxy, PAC & SOCKS5 Routing Engine
+
 - Supports **Direct, System Proxy (Windows Registry & OS Network auto-detection), PAC (Proxy Auto-Configuration script evaluation with in-memory caching), and Manual SOCKS5 / HTTP** modes.
 - Granular CIDR and wildcard bypass lists (`localhost`, `127.0.0.1`, `192.168.0.0/16`, `*.local`).
 - Built-in proxy connection tester with live latency and external IP verification.
 
 ### 🍪 Browser Cookie & Authenticated Downloading
+
 - Supports forwarding browser cookies (`HttpOnly` & client-side) to download private files (such as assets from private GitHub repositories, password-protected sites, or member-only media).
 
 ### 🔐 Site Credentials Vault & Basic Auth
+
 - Encrypted local vault to store site credentials (username & password) that auto-matches target hostnames and authenticates downloads and recursive crawler sessions seamlessly.
 
 ### 🛡️ Antivirus Verification & Real-Time File Integrity Checksums
+
 - **CI/CD ClamAV Antivirus Scanned:** All official release binaries are scanned with ClamAV antivirus and verified clean with published security certificates.
 - Built-in checksum validator supporting **SHA-256, SHA-512, MD5, SHA-1, and CRC32** hashes to guarantee downloaded file integrity.
 
 ### ⏳ Advanced Queue Manager & Scheduler
+
 - Create, prioritize, and manage multiple download queues with custom concurrency limits.
-- Multi-item right-click queue assignment, instant *"Without Queue"* downloads, and scheduled start/stop automation.
-- **Granular Queue Window Controls:** Configure *Show real time download process* and *Download compression window* popups individually per queue (disabled by default for silent background operation).
+- Multi-item right-click queue assignment, instant _"Without Queue"_ downloads, and scheduled start/stop automation.
+- **Granular Queue Window Controls:** Configure _Show real time download process_ and _Download compression window_ popups individually per queue (disabled by default for silent background operation).
 - **One-Click Stop All:** Instantly halts all active queues and running/pending/queued downloads with immediate background stream cancellation.
 
 ### ⚠️ Settings "Danger Zone" & App Reset
+
 - Dedicated Danger Zone for resetting preferences to defaults or executing a complete clean purge of `~/.thunderdm` app data with double confirmation safeguards.
 
 ### 🎛️ Granular Bandwidth Limiter
+
 - Granular global and per-download speed throttling to prevent network congestion.
 
 ### 🔔 System Tray & Desktop Integration
+
 - Smooth minimize-to-tray background service with native desktop notifications.
 - Single-instance protection with automatic window restore and CLI argument parsing.
 - Default-enabled automatic launch on system boot (**Start On Boot**) syncing with native OS startup registries across Windows, macOS, and Linux.
@@ -117,6 +135,7 @@ It features a custom high-performance multi-segment download engine that dynamic
 ThunderDM features a full-fledged batch ingestion system with three dedicated modes:
 
 ### 1. Pattern / Sequence Generation
+
 Generate structured download links matching numerical or alphabetical patterns:
 
 - **Single Wildcard (`*`)**: `http://example.com/files/document_*.pdf`
@@ -132,22 +151,25 @@ Generate structured download links matching numerical or alphabetical patterns:
   - `http://site.com/archive_[a-z:2].tar` (step 2: a, c, e...)
 
 ### 2. Text / URL List & File Ingestion
+
 - Paste bulk URL lists directly into the text area (one link per line).
 - Click **Import TXT** to load `.txt` files containing download links.
 - Automatically normalizes URLs, ignores blank lines, and detects file categories.
 
 ### 3. Webpage Link Sniffer & Recursive Subfolder Crawler
+
 - **Recursive Directory Traversal:** Crawls BDIX movie servers, TV series libraries, FTP open directories, Apache/Nginx auto-indexes, h5ai, and Alist instances to find all downloadable files nested within subfolders (e.g., `Season 01/`, `Season 02/`).
 - **Configurable Crawl Depth:** Set recursion depth from 1 to 5 levels with automated circular link protection.
 - **Subfolder Filter & Quick Batch Selection:** Filter scanned items by specific subfolders or use the "Select Folder" / "Deselect Folder" buttons to batch toggle seasons and folders.
-- **Recreate Subfolders on Disk:** Enable *Recreate Subfolders on Disk* to automatically create the exact remote directory structure on your local storage (e.g., saving `Season 1/Episode 01.mkv` into `<DownloadFolder>/Season 1/Episode 01.mkv`).
+- **Recreate Subfolders on Disk:** Enable _Recreate Subfolders on Disk_ to automatically create the exact remote directory structure on your local storage (e.g., saving `Season 1/Episode 01.mkv` into `<DownloadFolder>/Season 1/Episode 01.mkv`).
 - **Site Credentials Vault Integration:** Automatically injects stored Basic or Bearer authentication headers when scanning protected directory trees.
 - **Category & Keyword Filtering:** Instantly filter discovered links by category (Video, Audio, Document, Archive, Software) and probe remote file sizes in real time before downloading.
 
 ### 4. Resilient Ingestion & Live Registration Overlay
+
 - **Live Ingestion Progress Overlay:** Interactive progress bar and file counter during high-volume batch registrations to ensure fluid UI responsiveness.
 - **Intelligent Filename Deduplication:** Automatically detects and resolves filename collisions without overwriting existing files or downloads.
-- **Batch Display Controls:** Dedicated toggles for *Save by file category*, *Show real time progress window*, and *Show completion window*.
+- **Batch Display Controls:** Dedicated toggles for _Save by file category_, _Show real time progress window_, and _Show completion window_.
 
 ---
 
@@ -165,6 +187,7 @@ ThunderDM includes an official high-performance companion browser extension buil
 </p>
 
 ### Extension Highlights:
+
 - **Automatic Interception:** Captures browser downloads (`chrome.downloads` API) and direct file links (`.zip`, `.rar`, `.iso`, `.exe`, `.mp4`, etc.) and routes them to ThunderDM.
 - **Smart Video Sniffer & Floating Badge:** Renders an in-page floating download badge over detected video elements for instant one-click media capture.
 - **Pass Browser Cookies Toggle:** Option under Advanced Settings to forward session cookies for downloading private repository files and authenticated media.
@@ -214,6 +237,7 @@ ThunderDM includes an official high-performance companion browser extension buil
 ## 🛠️ Getting Started & Development
 
 ### Prerequisites
+
 - **Go:** `v1.25` or higher ([Download](https://golang.org/dl/))
 - **Node.js:** `v18` or higher ([Download](https://nodejs.org/))
 - **Wails CLI:** `v3.0.0-beta` or higher (`go install github.com/wailsapp/wails/v3/cmd/wails3@latest`)
@@ -222,12 +246,14 @@ ThunderDM includes an official high-performance companion browser extension buil
 ### Installation & Setup
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/showayebDev/ThunderDownloadManager.git
    cd ThunderDownloadManager
    ```
 
 2. **Install frontend dependencies:**
+
    ```bash
    cd frontend
    npm install
@@ -286,19 +312,18 @@ ThunderDM runs a lightweight internal HTTP server on **port `37555`** (with fall
 
 ## 📜 Taskfile Commands Reference
 
-| Task Command | Description |
-| :--- | :--- |
-| `wails3 dev` | Runs the application in development mode with live reload. |
-| `wails3 task build` | Compiles the production binary for the current OS. |
-| `wails3 task package` | Packages a single universal production installer for Windows. |
-| `wails3 task package:all:platforms` | Cross-compiles packages for Windows, macOS (Universal), and Linux. |
-| `wails3 task ext` | Builds unpacked directories and ZIP/XPI archives for Chrome & Firefox extensions. |
-| `wails3 task generate_icon` | Generates high-resolution application icons and platform icon sets. |
-| `wails3 task set:version VERSION=x.y.z` | Synchronizes application version across all platform config files. |
+| Task Command                            | Description                                                                       |
+| :-------------------------------------- | :-------------------------------------------------------------------------------- |
+| `wails3 dev`                            | Runs the application in development mode with live reload.                        |
+| `wails3 task build`                     | Compiles the production binary for the current OS.                                |
+| `wails3 task package`                   | Packages a single universal production installer for Windows.                     |
+| `wails3 task package:all:platforms`     | Cross-compiles packages for Windows, macOS (Universal), and Linux.                |
+| `wails3 task ext`                       | Builds unpacked directories and ZIP/XPI archives for Chrome & Firefox extensions. |
+| `wails3 task generate_icon`             | Generates high-resolution application icons and platform icon sets.               |
+| `wails3 task set:version VERSION=x.y.z` | Synchronizes application version across all platform config files.                |
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
