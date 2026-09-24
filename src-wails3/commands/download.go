@@ -196,7 +196,9 @@ func (c *DownloadCommand) Start(id, urlStr, savePath, filename string, threadCou
 
 func (c *DownloadCommand) Pause(id string) error {
 	log.Printf("[DownloadCommand] Pause called for ID: %s", id)
-	return downloader.GetEngine().Pause(id)
+	err := downloader.GetEngine().Pause(id)
+	DebouncedRebuildTrayMenuGlobal()
+	return err
 }
 
 func (c *DownloadCommand) Resume(id, urlStr, savePath, filename string, threadCount int, speedLimit *int64, protocol *string) error {
@@ -243,6 +245,10 @@ func (c *DownloadCommand) Cancel(id string) error {
 				w.Close()
 			}
 			c.app.Event.Emit("close-realtime-progress-"+id, id)
+			c.app.Event.Emit("download-item-tray-changed", map[string]interface{}{
+				"id":     id,
+				"inTray": false,
+			})
 		}
 		if w, ok := c.app.Window.Get("realtime-progress"); ok && w != nil {
 			w.Close()
@@ -254,6 +260,8 @@ func (c *DownloadCommand) Cancel(id string) error {
 	delete(hiddenDownloads, id)
 	delete(trayMenuItems, id)
 	hiddenDownloadsMu.Unlock()
+
+	RebuildTrayMenuGlobal()
 
 	st := downloader.GetEngine().GetTaskState(id)
 	if st != nil {
@@ -277,6 +285,16 @@ func (c *DownloadCommand) BatchDeleteDownloads(args BatchDeleteArgs) error {
 		return nil
 	}
 
+	hiddenDownloadsMu.Lock()
+	for _, id := range args.IDs {
+		if id == "" {
+			continue
+		}
+		delete(hiddenDownloads, id)
+		delete(trayMenuItems, id)
+	}
+	hiddenDownloadsMu.Unlock()
+
 	for _, id := range args.IDs {
 		if id == "" {
 			continue
@@ -288,12 +306,11 @@ func (c *DownloadCommand) BatchDeleteDownloads(args BatchDeleteArgs) error {
 			}
 			c.app.Event.Emit("close-realtime-progress-"+id, id)
 			c.app.Event.Emit("close-realtime-progress", id)
+			c.app.Event.Emit("download-item-tray-changed", map[string]interface{}{
+				"id":     id,
+				"inTray": false,
+			})
 		}
-
-		hiddenDownloadsMu.Lock()
-		delete(hiddenDownloads, id)
-		delete(trayMenuItems, id)
-		hiddenDownloadsMu.Unlock()
 
 		// 2. Stop running engine task and cleanly close open file handles
 		_ = downloader.GetEngine().Cancel(id)
@@ -332,6 +349,8 @@ func (c *DownloadCommand) BatchDeleteDownloads(args BatchDeleteArgs) error {
 		}
 	}
 
+	RebuildTrayMenuGlobal()
+
 	// 4. Atomically delete records from SQLite
 	return storage.DeleteDownloads(args.IDs)
 }
@@ -351,6 +370,7 @@ func (c *DownloadCommand) UpdateSpeedLimit(id string, speedLimit *int64) error {
 func (c *DownloadCommand) PauseAll() error {
 	log.Println("[DownloadCommand] PauseAll called")
 	downloader.GetEngine().PauseAll()
+	DebouncedRebuildTrayMenuGlobal()
 	return nil
 }
 
