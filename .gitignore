@@ -103,6 +103,8 @@ build/linux/nfpm/dist/
 !.vscode/launch.json
 !.vscode/extensions.json
 extension/dist
+.agents/
+graphify-out/
 
 # ------------------------------------------
 # Operating System Files

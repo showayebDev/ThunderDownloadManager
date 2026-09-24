@@ -23,6 +23,7 @@ type HLSSegmentState struct {
 	Status          DownloadStatus
 	DownloadedBytes int64
 	TempPath        string
+	RetryCount      int
 	mu              sync.Mutex
 }
 
@@ -310,15 +311,44 @@ func (tc *HLSTaskController) orchestratorLoop() {
 				return
 			}
 
+			cfg := GetEngineConfig()
+			maxRetries := cfg.MaxRetries
+			if maxRetries <= 0 {
+				maxRetries = 3
+			}
+
+			// Check if any errorSegs can be retried according to maxRetries setting
+			retriedAny := false
+			for _, es := range errorSegs {
+				es.mu.Lock()
+				if es.RetryCount < maxRetries {
+					es.RetryCount++
+					es.Status = StatusPending
+					pendingSegs = append(pendingSegs, es)
+					retriedAny = true
+					log.Printf("[HLSTaskController] Auto-retrying segment %d (attempt %d/%d) for task %s", es.Segment.Index, es.RetryCount, maxRetries, tc.State.ID)
+				}
+				es.mu.Unlock()
+			}
+			if retriedAny {
+				tc.State.mu.Lock()
+				tc.State.Status = StatusDownloading
+				tc.State.ErrorMessage = fmt.Sprintf("Reconnecting segment (attempt %d/%d)...", errorSegs[0].RetryCount, maxRetries)
+				tc.State.mu.Unlock()
+				time.AfterFunc(1000*time.Millisecond, func() {
+					tc.triggerWorkerCheck()
+				})
+			}
+
 			if tc.activeCount == 0 && len(pendingSegs) == 0 && !allFinished {
 				tc.segMu.Unlock()
-				tc.changeStatusWithError(StatusError, fmt.Errorf("HLS download failed: segment error"))
+				tc.changeStatusWithError(StatusError, fmt.Errorf("HLS download failed after %d retry attempts", maxRetries))
 				tc.emitCurrentProgress()
 				if application.Get() != nil {
 					application.Get().Event.Emit("download-error", map[string]interface{}{
 						"task_id": tc.State.ID,
 						"id":      tc.State.ID,
-						"error":   "HLS download failed: segment error",
+						"error":   fmt.Sprintf("HLS download failed after %d retry attempts", maxRetries),
 					})
 				}
 				tc.cancel()
@@ -452,7 +482,10 @@ func (tc *HLSTaskController) downloadSegment(segState *HLSSegmentState) {
 
 		segState.SetDownloadedBytes(int64(len(data)))
 		tc.totalBytesDl.Add(int64(len(data)))
-		segState.SetStatus(StatusFinished)
+		segState.mu.Lock()
+		segState.RetryCount = 0
+		segState.Status = StatusFinished
+		segState.mu.Unlock()
 		return
 	}
 

@@ -104,34 +104,7 @@ func (c *DownloadCommand) ProcessNewDownload(rawUrl string) error {
 	} else if isYTDLP {
 		proto = "Yt-DLP"
 		category = "Videos"
-		if parsedUrl != nil {
-			if v := parsedUrl.Query().Get("v"); v != "" {
-				filename = v + ".mp4"
-			} else if strings.Contains(parsedUrl.Path, "/reel/") {
-				parts := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")
-				for i, p := range parts {
-					if p == "reel" && i+1 < len(parts) {
-						filename = parts[i+1] + ".mp4"
-						break
-					}
-				}
-			} else if strings.Contains(parsedUrl.Path, "/video/") {
-				parts := strings.Split(strings.Trim(parsedUrl.Path, "/"), "/")
-				for i, p := range parts {
-					if p == "video" && i+1 < len(parts) {
-						filename = parts[i+1] + ".mp4"
-						break
-					}
-				}
-			} else if filename != "" && filename != "/" && filename != "." && filename != "watch" {
-				if !strings.Contains(filename, ".") {
-					filename = filename + ".mp4"
-				}
-			}
-		}
-		if filename == "" || filename == "/" || filename == "." || filename == "watch" {
-			filename = "video.mp4"
-		}
+		filename = downloader.ExtractYTDLPFallbackFilename(cleanURL)
 	} else if filename == "/" || filename == "." || filename == "" {
 		if isHLS {
 			filename = "video.mp4"
@@ -627,7 +600,9 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 		ctype := "video/mp4"
 		isInstalled := client.IsInstalled()
 		if !isInstalled {
+			fallbackName := downloader.ExtractYTDLPFallbackFilename(cleanURL)
 			return &RemoteFileInfo{
+				Filename:       &fallbackName,
 				FormattedSize:  "Dynamic Stream (YT-DLP)",
 				AcceptRanges:   true,
 				ContentType:    &ctype,
@@ -648,6 +623,10 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 				clean := downloader.SanitizeFilename(title + ".mp4")
 				fname = &clean
 			}
+			if fname == nil || *fname == "" || *fname == "video.mp4" || *fname == "download.mp4" {
+				fallback := downloader.ExtractYTDLPFallbackFilename(cleanURL)
+				fname = &fallback
+			}
 			return &RemoteFileInfo{
 				Filename:       fname,
 				Title:          &title,
@@ -660,8 +639,11 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 				Formats:        meta.Formats,
 			}, nil
 		}
+
+		fallbackName := downloader.ExtractYTDLPFallbackFilename(cleanURL)
 		return &RemoteFileInfo{
-			FormattedSize:  "Video Stream (YT-DLP)",
+			Filename:       &fallbackName,
+			FormattedSize:  "Dynamic Stream (YT-DLP)",
 			AcceptRanges:   true,
 			ContentType:    &ctype,
 			IsYTDLP:        true,

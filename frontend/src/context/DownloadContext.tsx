@@ -351,6 +351,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const downloadsRef = React.useRef(downloads);
   downloadsRef.current = downloads;
   const startingTaskIdsRef = React.useRef<Set<string>>(new Set());
+  const taskRetryMapRef = React.useRef<Map<string, number>>(new Map());
 
   // Poll filesystem to verify existence of downloaded files
   useEffect(() => {
@@ -1003,6 +1004,10 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const taskId = payload.task_id || payload.id;
           if (!taskId) return;
 
+          if (payload.status === 'Finished' || (payload.status === 'Downloading' && payload.speed > 0)) {
+            taskRetryMapRef.current.delete(taskId);
+          }
+
           const isTerminal = payload.status === 'Finished' || payload.status === 'Error' || payload.status === 'Paused' || payload.status === 'Canceled';
           pendingProgressMapRef.current.set(taskId, payload);
 
@@ -1020,11 +1025,52 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         });
 
-        unlistenError = await listen<any>('download-error', (event: { payload: any }) => {
+        unlistenError = await listen<any>('download-error', async (event: { payload: any }) => {
           const payload = event.payload || {};
           const taskId = payload.task_id || payload.id;
           if (!taskId) return;
 
+          let maxRetries = 3;
+          try {
+            const engine = await loadFromThunderDB<any>('download_engine', null);
+            if (engine && engine.maxRetries !== undefined) {
+              maxRetries = Number(engine.maxRetries) || 3;
+            } else if (globalSettingsRef.current?.maxRetries !== undefined) {
+              maxRetries = Number(globalSettingsRef.current.maxRetries) || 3;
+            }
+          } catch {
+            maxRetries = Number(globalSettingsRef.current?.maxRetries) || 3;
+          }
+
+          const currentAttempts = taskRetryMapRef.current.get(taskId) || 0;
+          if (currentAttempts < maxRetries) {
+            const nextAttempt = currentAttempts + 1;
+            taskRetryMapRef.current.set(taskId, nextAttempt);
+
+            setDownloads((prev) => {
+              const next = prev.map((d) => {
+                if (d.id === taskId) {
+                  return {
+                    ...d,
+                    status: 'Downloading' as DownloadStatus,
+                    speed: 0,
+                    timeLeft: `Retrying (${nextAttempt}/${maxRetries})...`,
+                    errorMessage: `Reconnecting (attempt ${nextAttempt}/${maxRetries})...`,
+                  };
+                }
+                return d;
+              });
+              downloadsRef.current = next;
+              return next;
+            });
+
+            setTimeout(() => {
+              resumeItem(taskId, false).catch(() => {});
+            }, 1500);
+            return;
+          }
+
+          taskRetryMapRef.current.delete(taskId);
           setDownloads((prev) => {
             const next = prev.map((d) => {
               if (d.id === taskId) {
@@ -1033,7 +1079,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                   status: 'Error' as DownloadStatus,
                   speed: 0,
                   timeLeft: 'Error',
-                  errorMessage: payload.error || d.errorMessage || 'Download error occurred',
+                  errorMessage: payload.error || d.errorMessage || `Download failed after ${maxRetries} retry attempts`,
                 };
               }
               return d;

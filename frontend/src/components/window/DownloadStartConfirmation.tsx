@@ -692,16 +692,36 @@ export const DownloadStartConfirmation: React.FC = () => {
         }
       } else if (isYTDLP) {
         setProtocol('Yt-DLP');
-        if (
-          !cleanFilename ||
-          cleanFilename === 'watch' ||
-          cleanFilename.includes('?') ||
-          cleanFilename === 'video' ||
-          cleanFilename.toLowerCase().endsWith('.html') ||
-          cleanFilename.toLowerCase().endsWith('.htm') ||
-          !cleanFilename.includes('.')
-        ) {
-          cleanFilename = 'video.mp4';
+        if (initialName && initialName.trim() && initialName !== 'video.mp4' && initialName !== 'download') {
+          cleanFilename = initialName.trim();
+        } else {
+          let extractedId = '';
+          const pathParts = pathname.split('/').filter(Boolean);
+          for (let i = 0; i < pathParts.length; i++) {
+            const p = pathParts[i].toLowerCase();
+            if (['p', 'reel', 'reels', 'tv', 'shorts', 'video', 'videos', 'status', 'clip'].includes(p) && i + 1 < pathParts.length) {
+              extractedId = pathParts[i + 1];
+              break;
+            }
+          }
+          if (extractedId && extractedId !== 'watch' && extractedId !== 'video' && extractedId !== 'index') {
+            const prefix = lowerUrl.includes('instagram.com') ? 'Instagram_' : lowerUrl.includes('tiktok.com') ? 'TikTok_' : '';
+            cleanFilename = `${prefix}${extractedId}.mp4`;
+          } else if (
+            !cleanFilename ||
+            cleanFilename === 'watch' ||
+            cleanFilename.includes('?') ||
+            cleanFilename === 'video' ||
+            cleanFilename.toLowerCase().endsWith('.html') ||
+            cleanFilename.toLowerCase().endsWith('.htm') ||
+            cleanFilename === 'reel' ||
+            cleanFilename === 'reels' ||
+            cleanFilename === 'p'
+          ) {
+            cleanFilename = 'video.mp4';
+          } else if (!cleanFilename.includes('.')) {
+            cleanFilename = `${cleanFilename}.mp4`;
+          }
         }
       } else if (isHLS) {
         setProtocol('HLS');
@@ -982,21 +1002,27 @@ export const DownloadStartConfirmation: React.FC = () => {
     lastFetchedKeyRef.current = fetchKey;
     inFlightFetchRef.current = true;
     setIsFetchingInfo(true);
-    setErrorMessage('');
-
     try {
-      const info = await invoke<any>('fetch_file_info_command', {
-        url: activeUrl.trim(),
-        protocol: protoToFetch,
-        username: u ? u.trim() : undefined,
-        password: p ? p.trim() : undefined,
-        userAgent: ua ? ua.trim() : undefined,
-        referer: ref ? ref.trim() : undefined,
-        cookies: ck ? ck.trim() : undefined,
-      });
-      if (info && info.filename) {
+      let info: any = null;
+      let lastErr: any = null;
+
+      try {
+        info = await invoke<any>('fetch_file_info_command', {
+          url: activeUrl.trim(),
+          protocol: protoToFetch,
+          username: u ? u.trim() : undefined,
+          password: p ? p.trim() : undefined,
+          userAgent: ua ? ua.trim() : undefined,
+          referer: ref ? ref.trim() : undefined,
+          cookies: ck ? ck.trim() : undefined,
+        });
+      } catch (err: any) {
+        lastErr = err;
+      }
+
+      if (info && (info.filename || info.is_ytdlp)) {
         metadataCacheRef.current[fetchKey] = info;
-        setFileSizeText(info.formatted_size || 'Unknown');
+        setFileSizeText(info.formatted_size || (info.is_ytdlp ? 'Dynamic Stream (YT-DLP)' : 'Unknown'));
         setFileFetched(true);
         setErrorMessage('');
         if (info.accept_ranges !== undefined) {
@@ -1036,17 +1062,20 @@ export const DownloadStartConfirmation: React.FC = () => {
         if (!isCustomPath) {
           setSavePath(targetSavePath);
         }
+        const candidateFilename = info.filename || name || 'video.mp4';
         invoke<string>('resolve_unique_filename_command', {
           savePath: targetSavePath,
-          filename: info.filename,
+          filename: candidateFilename,
         })
           .then((u) => {
             if (u) setName(u);
-            else setName(info.filename);
+            else setName(candidateFilename);
           })
           .catch(() => {
-            setName(info.filename);
+            setName(candidateFilename);
           });
+      } else if (lastErr) {
+        throw lastErr;
       } else {
         setFileSizeText('Unknown');
         setFileFetched(false);
@@ -1300,6 +1329,9 @@ export const DownloadStartConfirmation: React.FC = () => {
             resumable: acceptRanges === true,
             force: true,
             showRealTimeProgress: true,
+            protocol: effectiveProtocol,
+            is_ytdlp: isYTDLP,
+            isYTDLP: isYTDLP,
           });
         }
       } catch (e) {
