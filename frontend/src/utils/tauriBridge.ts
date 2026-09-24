@@ -263,6 +263,26 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         const targetId = typeof args === 'string' ? args : (args?.id || args?.taskId || '');
         return (await DownloadCommand.Cancel(targetId)) as T;
       }
+      case 'batch_delete_downloads':
+      case 'batch_delete_downloads_command': {
+        const payload = {
+          ids: Array.isArray(args?.ids) ? args.ids : (Array.isArray(args) ? args : [args?.id || args]),
+          delete_files_from_disk: Boolean(args?.delete_files_from_disk ?? args?.deleteFromDisk),
+          file_paths: args?.file_paths || args?.filePaths || {},
+        };
+        try {
+          if (typeof (DownloadCommand as any).BatchDeleteDownloads === 'function') {
+            return (await (DownloadCommand as any).BatchDeleteDownloads(payload)) as T;
+          }
+        } catch {}
+        try {
+          return (await (Call as any).ByName('ThunderDM/src-wails3/commands.DownloadCommand.BatchDeleteDownloads', payload)) as T;
+        } catch {}
+        try {
+          return (await (Call as any).ByName('main.DownloadCommand.BatchDeleteDownloads', payload)) as T;
+        } catch {}
+        return null as unknown as T;
+      }
       case 'get_task_status':
         return (await DownloadCommand.GetTaskStatus(args?.id || '')) as T;
       case 'get_default_thread_count_command':

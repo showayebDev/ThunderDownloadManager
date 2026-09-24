@@ -20,6 +20,7 @@ import (
 
 	"ThunderDM/src-wails3/downloader"
 	"ThunderDM/src-wails3/storage"
+	"ThunderDM/src-wails3/utils"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -262,6 +263,77 @@ func (c *DownloadCommand) Cancel(id string) error {
 	}
 
 	return downloader.GetEngine().Cancel(id)
+}
+
+type BatchDeleteArgs struct {
+	IDs                 []string          `json:"ids"`
+	DeleteFilesFromDisk bool              `json:"delete_files_from_disk"`
+	FilePaths           map[string]string `json:"file_paths,omitempty"`
+}
+
+func (c *DownloadCommand) BatchDeleteDownloads(args BatchDeleteArgs) error {
+	log.Printf("[DownloadCommand] BatchDeleteDownloads called for %d items (deleteFiles: %v)", len(args.IDs), args.DeleteFilesFromDisk)
+	if len(args.IDs) == 0 {
+		return nil
+	}
+
+	for _, id := range args.IDs {
+		if id == "" {
+			continue
+		}
+		// 1. Close realtime progress windows and emit cancellation events
+		if c.app != nil {
+			if w, ok := c.app.Window.Get("realtime-progress-" + id); ok && w != nil {
+				w.Close()
+			}
+			c.app.Event.Emit("close-realtime-progress-"+id, id)
+			c.app.Event.Emit("close-realtime-progress", id)
+		}
+
+		hiddenDownloadsMu.Lock()
+		delete(hiddenDownloads, id)
+		delete(trayMenuItems, id)
+		hiddenDownloadsMu.Unlock()
+
+		// 2. Stop running engine task and cleanly close open file handles
+		_ = downloader.GetEngine().Cancel(id)
+
+		// 3. Delete files from disk if requested
+		if args.DeleteFilesFromDisk {
+			filePath := ""
+			if args.FilePaths != nil {
+				filePath = args.FilePaths[id]
+			}
+			if filePath == "" {
+				st := downloader.GetEngine().GetTaskState(id)
+				if st != nil {
+					sp, _ := st["save_path"].(string)
+					fn, _ := st["filename"].(string)
+					if sp != "" && fn != "" {
+						filePath = filepath.Join(sp, fn)
+					}
+				}
+			}
+			if filePath != "" {
+				resolved := utils.ResolveExistingFilePath(filePath)
+				targetPath := filePath
+				if resolved != "" {
+					targetPath = resolved
+				}
+				_ = os.Remove(targetPath)
+				_ = os.RemoveAll(targetPath)
+				_ = os.Remove(targetPath + ".thunderdm")
+				_ = os.Remove(targetPath + ".merging")
+				dir := filepath.Dir(targetPath)
+				base := filepath.Base(targetPath)
+				_ = os.Remove(filepath.Join(dir, ".torrent.bolt.db"))
+				downloader.CleanYTDLPTempFiles(dir, base)
+			}
+		}
+	}
+
+	// 4. Atomically delete records from SQLite
+	return storage.DeleteDownloads(args.IDs)
 }
 
 func (c *DownloadCommand) UpdateThreadCount(id string, threads int) error {
@@ -553,7 +625,7 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 		if opts.Referer != "" {
 			r.Header.Set("Referer", opts.Referer)
 		}
-		if opts.Cookies != "" {
+		if opts.Cookies != "" && !downloader.ShouldBypassCookies(cleanURL, "http") {
 			r.Header.Set("Cookie", opts.Cookies)
 		}
 	}

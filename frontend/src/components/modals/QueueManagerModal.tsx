@@ -684,7 +684,7 @@ export const QueueManagerModal: React.FC = () => {
                                   {item.status}
                                 </span>
                                 <span>•</span>
-                                <span>{formatBytes(item.size)}</span>
+                                <span>{formatBytes(item.size > 0 ? item.size : (item.downloaded > 0 ? item.downloaded : 0))}</span>
                                 {item.status === 'Downloading' && item.speed > 0 && (
                                   <>
                                     <span>•</span>

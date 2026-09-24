@@ -577,15 +577,9 @@ func buildYTDLPEnv(urlStr string) []string {
 	return env
 }
 
-// IsCookieBrokenHost checks if passing raw header cookies (--add-header "Cookie: ...") is known to break the platform extractor in yt-dlp.
+// IsCookieBrokenHost checks if passing raw header cookies (--add-header "Cookie: ...") is bypassed for the host in yt-dlp.
 func IsCookieBrokenHost(uStr string) bool {
-	lower := strings.ToLower(uStr)
-	return strings.Contains(lower, "instagram.com") ||
-		strings.Contains(lower, "threads.net") ||
-		strings.Contains(lower, "tiktok.com") ||
-		strings.Contains(lower, "facebook.com") ||
-		strings.Contains(lower, "fb.watch") ||
-		strings.Contains(lower, "fb.com")
+	return ShouldBypassCookies(uStr, "ytdlp")
 }
 
 // GetVideoMetadata fetches complete video metadata including title and formats using yt-dlp JSON output.
@@ -803,6 +797,7 @@ type YTDLPTaskController struct {
 var (
 	ytdlpResumeRegex   = regexp.MustCompile(`\[download\]\s+Resuming\s+download\s+at\s+byte\s+(\d+)`)
 	ytdlpDownloadRegex = regexp.MustCompile(`\[download\]\s+([\d\.]+)%\s+of\s+~?\s*([\d\.]+\s*[A-Za-z]+)(?:\s+at\s+([\d\.]+\s*[A-Za-z/]+))?(?:\s+(?:ETA\s+([\d:]+)|in\s+([\d:]+)))?`)
+	ytdlpAlreadyRegex  = regexp.MustCompile(`\[download\]\s+(.+)\s+has already been downloaded`)
 )
 
 func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, filename, quality string, opts ...interface{}) *YTDLPTaskController {
@@ -882,7 +877,6 @@ func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, file
 
 	if initDL > 0 {
 		tc.downloaded.Store(initDL)
-		tc.prevStreamsTotal.Store(initDL)
 	}
 	if initTot > 0 {
 		tc.totalBytes.Store(initTot)
@@ -1102,7 +1096,11 @@ func (t *YTDLPTaskController) Start() {
 		args = append(args, "--referer", t.State.Referer)
 	}
 
-	outTemplate := filepath.Join(t.State.SavePath, t.State.Filename)
+	outBase := strings.TrimSuffix(cleanFilename, filepath.Ext(cleanFilename))
+	if outBase == "" {
+		outBase = "video"
+	}
+	outTemplate := filepath.Join(t.State.SavePath, outBase) + ".%(ext)s"
 	args = append(args, "-o", outTemplate)
 
 	if proxyStr := GetProxyManager().GetProxyStringForURL(t.State.URL); proxyStr != "" {
@@ -1274,16 +1272,56 @@ func (t *YTDLPTaskController) Start() {
 	t.mu.Unlock()
 
 	// Stat the actual finished file size on disk for 100% precision
-	destPath := filepath.Join(t.State.SavePath, t.State.Filename)
-	resolvedPath := ResolveExistingFilePath(destPath)
-	var finalSize int64
-	if fi, err := os.Stat(resolvedPath); err == nil && fi.Size() > 0 {
-		finalSize = fi.Size()
-		t.State.Filename = filepath.Base(resolvedPath)
-		t.State.DestFilePath = resolvedPath
+	cleanFilename = SanitizeFilename(t.State.Filename)
+	ext := filepath.Ext(cleanFilename)
+	base := strings.TrimSuffix(cleanFilename, ext)
+	if base == "" {
+		base = "video"
 	}
 
-	if finalSize > 0 {
+	destPath := filepath.Join(t.State.SavePath, cleanFilename)
+	var finalPath string
+	var finalSize int64
+
+	// 1. Direct check
+	if fi, err := os.Stat(destPath); err == nil && !fi.IsDir() && fi.Size() > 0 {
+		finalPath = destPath
+		finalSize = fi.Size()
+	}
+
+	// 2. Check candidate extensions if format changed (e.g. mp4, mkv, webm, mp3, m4a, opus)
+	if finalPath == "" {
+		candidates := []string{
+			filepath.Join(t.State.SavePath, base+".mp4"),
+			filepath.Join(t.State.SavePath, base+".mkv"),
+			filepath.Join(t.State.SavePath, base+".webm"),
+			filepath.Join(t.State.SavePath, base+".mp3"),
+			filepath.Join(t.State.SavePath, base+".m4a"),
+			filepath.Join(t.State.SavePath, base+".opus"),
+		}
+		for _, cand := range candidates {
+			if fi, err := os.Stat(cand); err == nil && !fi.IsDir() && fi.Size() > 0 {
+				finalPath = cand
+				finalSize = fi.Size()
+				break
+			}
+		}
+	}
+
+	// 3. Fallback to ResolveExistingFilePath
+	if finalPath == "" {
+		resolved := ResolveExistingFilePath(destPath)
+		if resolved != "" {
+			if fi, err := os.Stat(resolved); err == nil && !fi.IsDir() && fi.Size() > 0 {
+				finalPath = resolved
+				finalSize = fi.Size()
+			}
+		}
+	}
+
+	if finalPath != "" {
+		t.State.Filename = filepath.Base(finalPath)
+		t.State.DestFilePath = finalPath
 		t.totalBytes.Store(finalSize)
 		t.downloaded.Store(finalSize)
 		t.State.TotalSize = finalSize
@@ -1293,6 +1331,7 @@ func (t *YTDLPTaskController) Start() {
 
 	t.speedVal.Store(0)
 	t.etaVal.Store(0)
+	t.percentVal.Store(100)
 
 	t.emitProgress()
 
@@ -1301,15 +1340,25 @@ func (t *YTDLPTaskController) Start() {
 	// Emit completion event
 	if application.Get() != nil {
 		completedPayload := map[string]interface{}{
-			"id":             t.State.ID,
-			"task_id":        t.State.ID,
-			"filename":       t.State.Filename,
-			"save_path":      t.State.SavePath,
-			"dest_file_path": t.State.DestFilePath,
-			"filePath":       t.State.DestFilePath,
-			"total_size":     t.downloaded.Load(),
-			"downloaded":     t.downloaded.Load(),
-			"showCompletion": t.State.ShowCompletion,
+			"id":                   t.State.ID,
+			"task_id":              t.State.ID,
+			"taskId":               t.State.ID,
+			"filename":             t.State.Filename,
+			"name":                 t.State.Filename,
+			"save_path":            t.State.SavePath,
+			"savePath":             t.State.SavePath,
+			"dest_file_path":       t.State.DestFilePath,
+			"destFilePath":         t.State.DestFilePath,
+			"filePath":             t.State.DestFilePath,
+			"total_size":           t.downloaded.Load(),
+			"totalSize":            t.downloaded.Load(),
+			"total_bytes":          t.downloaded.Load(),
+			"downloaded":           t.downloaded.Load(),
+			"downloaded_bytes":     t.downloaded.Load(),
+			"showCompletion":       t.State.ShowCompletion,
+			"show_completion":      t.State.ShowCompletion,
+			"showCompletionWindow": t.State.ShowCompletion,
+			"status":               string(StatusFinished),
 		}
 		LatestDownloadCompletedPayload = completedPayload
 		if OnDownloadCompleted != nil {
@@ -1320,6 +1369,13 @@ func (t *YTDLPTaskController) Start() {
 }
 
 func (t *YTDLPTaskController) processOutputLine(line string) {
+	if alreadyMatches := ytdlpAlreadyRegex.FindStringSubmatch(line); len(alreadyMatches) > 1 {
+		alreadyFile := strings.TrimSpace(alreadyMatches[1])
+		if fi, err := os.Stat(alreadyFile); err == nil && fi.Size() > 0 {
+			t.prevStreamsTotal.Add(fi.Size())
+		}
+	}
+
 	if strings.Contains(line, "[download] Destination:") {
 		// A new stream format is starting. If we had a previous stream downloaded, accumulate its total!
 		currTot := t.currentStreamTotal.Load()
@@ -1475,16 +1531,7 @@ func CleanYTDLPTempFiles(savePath, filename string) {
 
 		// Check if this file is related to the task
 		isRelated := strings.HasPrefix(lowerName, lowerBase) || strings.HasPrefix(lowerName, lowerFilename)
-		if !isRelated {
-			continue
-		}
-
-		// Delete if it's a part/ytdl/temp file or contains .part or .ytdl
-		if strings.HasSuffix(lowerName, ".part") ||
-			strings.HasSuffix(lowerName, ".ytdl") ||
-			strings.HasSuffix(lowerName, ".temp") ||
-			strings.Contains(lowerName, ".part") ||
-			strings.Contains(lowerName, ".ytdl") {
+		if isRelated && IsIntermediateDownloadFile(name) {
 			fullPath := filepath.Join(savePath, name)
 			_ = os.Remove(fullPath)
 			log.Printf("[YTDLP] Cleaned up temporary file on cancel: %s\n", fullPath)

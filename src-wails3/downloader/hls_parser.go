@@ -165,7 +165,7 @@ func FetchAndParseHLS(ctx context.Context, client *http.Client, rawURL string, o
 	if referer != "" {
 		req.Header.Set("Referer", referer)
 	}
-	if cookies != "" {
+	if cookies != "" && !ShouldBypassCookies(rawURL, "hls") {
 		req.Header.Set("Cookie", cookies)
 	}
 

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"ThunderDM/src-wails3/storage"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -466,7 +468,7 @@ func (tc *TaskController) preCheck() error {
 		if tc.State.Referer != "" {
 			r.Header.Set("Referer", tc.State.Referer)
 		}
-		if tc.State.Cookies != "" {
+		if tc.State.Cookies != "" && !ShouldBypassCookies(tc.State.URL, "http") {
 			r.Header.Set("Cookie", tc.State.Cookies)
 		}
 	}
@@ -1349,6 +1351,15 @@ func (tc *TaskController) finalizeDownload() {
 		_ = os.Chtimes(destPath, tc.State.LastModified, tc.State.LastModified)
 	}
 
+	// Always sync and backfill real finished file size on disk
+	tc.State.mu.Lock()
+	if fi, err := os.Stat(destPath); err == nil && fi.Size() > 0 {
+		tc.State.TotalSize = fi.Size()
+		totalSize = fi.Size()
+		actualDownloaded = fi.Size()
+	}
+	tc.State.mu.Unlock()
+
 	// Clean up checkpoint metadata from OS local app storage upon successful completion
 	tc.cleanupCheckpoint()
 
@@ -1358,6 +1369,13 @@ func (tc *TaskController) finalizeDownload() {
 	if finalDL <= 0 {
 		finalDL = actualDownloaded
 	}
+	if tc.State.TotalSize <= 0 && finalDL > 0 {
+		tc.State.mu.Lock()
+		tc.State.TotalSize = finalDL
+		tc.State.mu.Unlock()
+	}
+
+	_ = storage.UpdateDownloadProgress(tc.State.ID, finalDL, tc.State.TotalSize, string(StatusFinished), "", nil)
 
 	if application.Get() != nil {
 		resumeSupportStr := "No"
@@ -1490,6 +1508,18 @@ func (tc *TaskController) Cancel() error {
 
 	tc.cancel()
 	tc.changeStatus(StatusCanceled)
+
+	// Cancel all worker contexts immediately
+	tc.cancelsMu.Lock()
+	for _, cancelFn := range tc.workerCancels {
+		if cancelFn != nil {
+			cancelFn()
+		}
+	}
+	tc.cancelsMu.Unlock()
+
+	// Wait for workers to stop writing to release the OS file descriptor
+	tc.workers.Wait()
 
 	if tc.targetFile != nil {
 		_ = tc.targetFile.Sync()

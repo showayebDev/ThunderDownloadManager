@@ -6,31 +6,42 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"ThunderDM/src-wails3/storage"
 )
 
+// CookieBypassRule defines granular cookie bypass rules per domain across download protocols.
+type CookieBypassRule struct {
+	Domain string `json:"domain"`
+	HTTP   bool   `json:"http"`
+	YTDLP  bool   `json:"ytdlp"`
+	HLS    bool   `json:"hls"`
+}
+
 // EngineConfig holds all persistent download engine configuration parameters.
 type EngineConfig struct {
-	DownloadPath                string      `json:"downloadPath"`
-	UseCategoryByDefault        bool              `json:"useCategoryByDefault"`
-	CategoryPaths               map[string]string `json:"categoryPaths,omitempty"`
-	GlobalSpeedLimiter          bool              `json:"globalSpeedLimiter"`
-	GlobalSpeedLimit            int64       `json:"globalSpeedLimit"`
-	DefaultThreadCount          int         `json:"defaultThreadCount"`
-	MaxConcurrentDownloads      int         `json:"maxConcurrentDownloads"`
-	MaxRetries                  int         `json:"maxRetries"`
-	DynamicPartCreation         bool        `json:"dynamicPartCreation"`
-	UserAgent                   string      `json:"userAgent"`
-	IgnoreSSL                   bool        `json:"ignoreSsl"`
-	UseServersLastModified      bool        `json:"useServersLastModified"`
-	TrackDeletedFiles           bool        `json:"trackDeletedFiles"`
-	AppendExtensionToIncomplete bool        `json:"appendExtensionToIncomplete"`
-	DeletePartialOnFileCancel   bool        `json:"deletePartialOnFileCancel"`
-	SparseFileAllocation        bool        `json:"sparseFileAllocation"`
-	VaultItems                  []VaultItem `json:"vaultItems"`
-	ProxyConfig                 ProxyConfig `json:"proxyConfig"`
+	DownloadPath                string             `json:"downloadPath"`
+	UseCategoryByDefault        bool               `json:"useCategoryByDefault"`
+	CategoryPaths               map[string]string  `json:"categoryPaths,omitempty"`
+	GlobalSpeedLimiter          bool               `json:"globalSpeedLimiter"`
+	GlobalSpeedLimit            int64              `json:"globalSpeedLimit"`
+	DefaultThreadCount          int                `json:"defaultThreadCount"`
+	MaxConcurrentDownloads      int                `json:"maxConcurrentDownloads"`
+	MaxRetries                  int                `json:"maxRetries"`
+	DynamicPartCreation         bool               `json:"dynamicPartCreation"`
+	UserAgent                   string             `json:"userAgent"`
+	IgnoreSSL                   bool               `json:"ignoreSsl"`
+	UseServersLastModified      bool               `json:"useServersLastModified"`
+	TrackDeletedFiles           bool               `json:"trackDeletedFiles"`
+	AppendExtensionToIncomplete bool               `json:"appendExtensionToIncomplete"`
+	DeletePartialOnFileCancel   bool               `json:"deletePartialOnFileCancel"`
+	SparseFileAllocation        bool               `json:"sparseFileAllocation"`
+	CookieBypassRules           []CookieBypassRule `json:"cookieBypassRules,omitempty"`
+	CookieBypassDomains         []string           `json:"cookieBypassDomains,omitempty"`
+	VaultItems                  []VaultItem        `json:"vaultItems"`
+	ProxyConfig                 ProxyConfig        `json:"proxyConfig"`
 }
 
 var (
@@ -60,6 +71,18 @@ func DefaultEngineConfig() EngineConfig {
 		AppendExtensionToIncomplete: true,
 		DeletePartialOnFileCancel:   false,
 		SparseFileAllocation:        true,
+		CookieBypassRules: []CookieBypassRule{
+			{Domain: "instagram.com", HTTP: true, YTDLP: true, HLS: true},
+			{Domain: "tiktok.com", HTTP: true, YTDLP: true, HLS: true},
+			{Domain: "facebook.com", HTTP: true, YTDLP: true, HLS: true},
+			{Domain: "threads.net", HTTP: true, YTDLP: true, HLS: true},
+			{Domain: "fb.watch", HTTP: true, YTDLP: true, HLS: true},
+			{Domain: "fb.com", HTTP: true, YTDLP: true, HLS: true},
+			{Domain: "youtube.com", HTTP: false, YTDLP: true, HLS: false},
+		},
+		CookieBypassDomains: []string{
+			"instagram.com", "tiktok.com", "facebook.com", "threads.net", "fb.watch", "fb.com", "youtube.com",
+		},
 		VaultItems:                  make([]VaultItem, 0),
 		ProxyConfig:                 DefaultProxyConfig(),
 	}
@@ -143,6 +166,24 @@ func LoadEngineConfig() EngineConfig {
 					var cp map[string]string
 					if err := json.Unmarshal(rawBytes, &cp); err == nil {
 						cfg.CategoryPaths = cp
+					}
+				}
+			}
+
+			// Cookie bypass rules & legacy domains
+			if cbrRaw, ok := root["cookieBypassRules"]; ok && cbrRaw != nil {
+				if rawBytes, err := json.Marshal(cbrRaw); err == nil {
+					var rules []CookieBypassRule
+					if err := json.Unmarshal(rawBytes, &rules); err == nil && len(rules) > 0 {
+						cfg.CookieBypassRules = rules
+					}
+				}
+			}
+			if cbdRaw, ok := root["cookieBypassDomains"]; ok && cbdRaw != nil {
+				if rawBytes, err := json.Marshal(cbdRaw); err == nil {
+					var cbd []string
+					if err := json.Unmarshal(rawBytes, &cbd); err == nil && len(cbd) > 0 {
+						cfg.CookieBypassDomains = cbd
 					}
 				}
 			}
@@ -242,5 +283,51 @@ func GetProgressInterval() time.Duration {
 	}
 	ms := float64(1000) / fps
 	return time.Duration(ms) * time.Millisecond
+}
+
+// ShouldBypassCookies checks if cookies should be omitted for a given URL and download protocol ("http", "ytdlp", "hls", or ""/any).
+func ShouldBypassCookies(urlStr string, protocolType string) bool {
+	if urlStr == "" {
+		return false
+	}
+	lowerURL := strings.ToLower(urlStr)
+	proto := strings.ToLower(strings.TrimSpace(protocolType))
+
+	cfg := GetEngineConfig()
+	rules := cfg.CookieBypassRules
+
+	if len(rules) == 0 {
+		if len(cfg.CookieBypassDomains) > 0 {
+			for _, d := range cfg.CookieBypassDomains {
+				cleanD := strings.TrimSpace(strings.ToLower(d))
+				if cleanD != "" && strings.Contains(lowerURL, cleanD) {
+					return true
+				}
+			}
+			return false
+		}
+		rules = DefaultEngineConfig().CookieBypassRules
+	}
+
+	for _, r := range rules {
+		cleanD := strings.TrimSpace(strings.ToLower(r.Domain))
+		if cleanD == "" {
+			continue
+		}
+		if strings.Contains(lowerURL, cleanD) {
+			switch proto {
+			case "http", "https", "direct":
+				return r.HTTP
+			case "ytdlp", "yt-dlp", "video":
+				return r.YTDLP
+			case "hls", "m3u8":
+				return r.HLS
+			default:
+				return r.HTTP || r.YTDLP || r.HLS
+			}
+		}
+	}
+
+	return false
 }
 

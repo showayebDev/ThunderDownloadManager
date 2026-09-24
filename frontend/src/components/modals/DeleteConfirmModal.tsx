@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Trash2, X } from 'lucide-react';
 import { useDownloadContext } from '../../context/DownloadContext';
-import { invoke } from '../../utils/tauriBridge';
 import {
   Dialog,
   DialogContent,
@@ -16,24 +15,23 @@ interface DeleteConfirmModalProps {
 }
 
 export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({ onClose }) => {
-  const { selectedIds, downloads, deleteSelected, closeModal } = useDownloadContext();
+  const { selectedIds, deleteDownloads, closeModal } = useDownloadContext();
   const [deleteFromDisk, setDeleteFromDisk] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const selectedCount = selectedIds.size > 0 ? selectedIds.size : 1;
-  const selectedItems = downloads.filter((d) => selectedIds.has(d.id));
 
   const handleDelete = async () => {
-    if (deleteFromDisk) {
-      try {
-        for (const item of selectedItems) {
-          const filePath = `${item.savePath}\\${item.name}`;
-          await invoke('delete_file_from_disk_command', { filePath });
-        }
-      } catch {}
+    if (isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const idsToDelete = Array.from(selectedIds);
+      await deleteDownloads(idsToDelete, deleteFromDisk);
+    } finally {
+      setIsDeleting(false);
+      closeModal();
+      onClose();
     }
-    deleteSelected();
-    closeModal();
-    onClose();
   };
 
   const handleCancel = () => {
@@ -86,11 +84,11 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({ onClose 
 
         {/* Docked Footer */}
         <div className="px-5 py-3.5 border-t border-border/70 bg-card/60 flex flex-row items-center justify-end gap-2.5 shrink-0 select-none">
-          <Button variant="outline" size="sm" onClick={handleCancel} className="text-xs h-8 px-4 rounded-lg">
+          <Button variant="outline" size="sm" onClick={handleCancel} disabled={isDeleting} className="text-xs h-8 px-4 rounded-lg">
             Cancel
           </Button>
-          <Button variant="destructive" size="sm" onClick={handleDelete} className="text-xs h-8 px-5 rounded-lg shadow-sm">
-            Delete
+          <Button variant="destructive" size="sm" onClick={handleDelete} disabled={isDeleting} className="text-xs h-8 px-5 rounded-lg shadow-sm">
+            {isDeleting ? 'Deleting...' : 'Delete'}
           </Button>
         </div>
       </DialogContent>

@@ -124,6 +124,28 @@ func SanitizeFilename(filename string) string {
 	return result
 }
 
+// IsIntermediateDownloadFile checks if a file is an active partial/temporary file (.part, .ytdl, .f137.mp4, etc.)
+func IsIntermediateDownloadFile(name string) bool {
+	nameLower := strings.ToLower(name)
+	if strings.HasSuffix(nameLower, ".part") ||
+		strings.HasSuffix(nameLower, ".ytdl") ||
+		strings.HasSuffix(nameLower, ".thunderdm") ||
+		strings.HasSuffix(nameLower, ".temp") ||
+		strings.HasSuffix(nameLower, ".tmp") ||
+		strings.HasSuffix(nameLower, ".merging") ||
+		strings.HasSuffix(nameLower, ".bolt.db") ||
+		strings.Contains(nameLower, ".part-frag") ||
+		strings.Contains(nameLower, ".temp.") {
+		return true
+	}
+	if intermediateFormatRegex.MatchString(nameLower) {
+		return true
+	}
+	return false
+}
+
+var intermediateFormatRegex = regexp.MustCompile(`(?i)\.f\d+\.[a-z0-9]+$|\.part-Frag\d+|\.frag\d+\.part$`)
+
 // ResolveExistingFilePath verifies if path exists. If not, it searches the parent directory
 // for a file that was trimmed, sanitized, or saved with a slightly different name.
 func ResolveExistingFilePath(path string) string {
@@ -161,9 +183,11 @@ func ResolveExistingFilePath(path string) string {
 
 	// 1. Try directly sanitizing invalid Windows/Unix characters from filename
 	sanitizedName := SanitizeFilename(filename)
-	sanitizedPath := filepath.Join(dir, sanitizedName)
-	if fi, err := os.Stat(sanitizedPath); err == nil && !fi.IsDir() {
-		return sanitizedPath
+	if !IsIntermediateDownloadFile(sanitizedName) {
+		sanitizedPath := filepath.Join(dir, sanitizedName)
+		if fi, err := os.Stat(sanitizedPath); err == nil && !fi.IsDir() {
+			return sanitizedPath
+		}
 	}
 
 	ext := filepath.Ext(filename)
@@ -181,13 +205,7 @@ func ResolveExistingFilePath(path string) string {
 			continue
 		}
 		name := entry.Name()
-		nameLower := strings.ToLower(name)
-		if strings.HasSuffix(nameLower, ".part") ||
-			strings.HasSuffix(nameLower, ".ytdl") ||
-			strings.HasSuffix(nameLower, ".thunderdm") ||
-			strings.HasSuffix(nameLower, ".temp") ||
-			strings.HasSuffix(nameLower, ".tmp") ||
-			strings.HasSuffix(nameLower, ".merging") {
+		if IsIntermediateDownloadFile(name) {
 			continue
 		}
 

@@ -95,6 +95,13 @@ export interface VaultItem {
 
 export type PerHostSetting = VaultItem;
 
+export interface CookieBypassRule {
+  domain: string;
+  http: boolean;
+  ytdlp: boolean;
+  hls: boolean;
+}
+
 export interface GlobalSettings {
   downloadPath: string;
   cachePath?: string;
@@ -130,5 +137,9 @@ export interface GlobalSettings {
   proxyEnabled?: boolean;
   proxyHost?: string;
   proxyPort?: string;
+
+  // Cookie bypass rules across download engines (HTTP, YT-DLP, HLS)
+  cookieBypassRules?: CookieBypassRule[];
+  cookieBypassDomains?: string[];
 }
 

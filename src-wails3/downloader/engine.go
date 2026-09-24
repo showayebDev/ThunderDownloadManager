@@ -117,10 +117,13 @@ func (e *Engine) IsFileActive(savePath, filename string) bool {
 	// Check if active .part / .ytdl temporary files exist
 	baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
 	if baseName != "" {
-		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+".*.part*")); len(matches) > 0 {
+		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+"*.part*")); len(matches) > 0 {
 			return true
 		}
-		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+".*.ytdl*")); len(matches) > 0 {
+		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+"*.ytdl*")); len(matches) > 0 {
+			return true
+		}
+		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+".f*")); len(matches) > 0 {
 			return true
 		}
 	}

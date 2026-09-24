@@ -74,7 +74,8 @@ interface DownloadContextType {
   pauseSelected: () => void;
   pauseItem: (id: string) => Promise<void>;
   resumeItem: (id: string, force?: boolean) => Promise<void>;
-  deleteSelected: () => void;
+  deleteDownloads: (ids: string[], deleteFromDisk?: boolean) => Promise<void>;
+  deleteSelected: (deleteFromDisk?: boolean) => void;
   deleteAllMissing: () => Promise<void>;
   deleteAllFinished: () => Promise<void>;
   deleteAllUnfinished: () => Promise<void>;
@@ -352,6 +353,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   downloadsRef.current = downloads;
   const startingTaskIdsRef = React.useRef<Set<string>>(new Set());
   const taskRetryMapRef = React.useRef<Map<string, number>>(new Map());
+  const deletingIdsRef = React.useRef<Set<string>>(new Set());
 
   // Poll filesystem to verify existence of downloaded files
   useEffect(() => {
@@ -367,7 +369,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     const checkDiskFiles = async () => {
-      const currentDownloads = downloadsRef.current;
+      const currentDownloads = (downloadsRef.current || []).filter((d) => !deletingIdsRef.current.has(d.id));
       if (!currentDownloads || currentDownloads.length === 0) return;
 
       const baseDir = globalSettingsRef.current?.downloadPath || '';
@@ -460,6 +462,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setDownloads((prev) => {
             let changed = false;
             const updated = prev.map((d) => {
+              if (deletingIdsRef.current.has(d.id)) return d;
               const candidates = itemPathMap.get(d.id) || [];
               let foundStat: { exists: boolean; size: number } | undefined;
               let foundPath: string | undefined;
@@ -516,28 +519,37 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
               if (d.status === 'Finished') {
                 const isMissing = !foundStat.exists;
-                if (d.fileMissing !== isMissing || d.savePath !== healedSavePath || d.name !== healedName || d.category !== healedCategory) {
-                  changed = true;
-                  return { ...d, fileMissing: isMissing, savePath: healedSavePath, name: healedName, category: healedCategory };
-                }
-              } else if (foundStat.exists && foundStat.size > 0 && (d.status === 'Downloading' || d.status === 'Pending' || d.status === 'Paused' || d.status === 'Error')) {
-                // If file is already fully completed on disk
-                const finalSize = d.size > 0 ? d.size : 0;
-                if (finalSize > 0 && foundStat.size >= finalSize) {
+                const updatedSize = (foundStat.exists && foundStat.size > 0 && d.size <= 0) ? foundStat.size : d.size;
+                const updatedDownloaded = (foundStat.exists && foundStat.size > 0 && d.downloaded <= 0) ? foundStat.size : d.downloaded;
+                if (
+                  d.fileMissing !== isMissing ||
+                  d.savePath !== healedSavePath ||
+                  d.name !== healedName ||
+                  d.category !== healedCategory ||
+                  d.size !== updatedSize ||
+                  d.downloaded !== updatedDownloaded
+                ) {
                   changed = true;
                   return {
                     ...d,
-                    name: healedName,
+                    fileMissing: isMissing,
                     savePath: healedSavePath,
+                    name: healedName,
                     category: healedCategory,
-                    status: 'Finished' as DownloadStatus,
-                    downloaded: foundStat.size,
-                    size: finalSize,
-                    speed: 0,
-                    timeLeft: '-',
+                    size: updatedSize,
+                    downloaded: updatedDownloaded,
+                  };
+                }
+              } else {
+                // Non-finished items are managed by download engine and should never be marked as missing
+                if (d.fileMissing) {
+                  changed = true;
+                  return {
+                    ...d,
                     fileMissing: false,
-                    dateCompleted: d.dateCompleted || new Date().toISOString(),
-                    endTime: d.endTime || new Date().toISOString(),
+                    savePath: healedSavePath,
+                    name: healedName,
+                    category: healedCategory,
                   };
                 }
               }
@@ -677,6 +689,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Listen for backend progress events with high-performance throttled batching
   useEffect(() => {
     let unlistenProgress: (() => void) | undefined;
+    let unlistenCompleted: (() => void) | undefined;
     let unlistenAdded: (() => void) | undefined;
     let unlistenRegister: (() => void) | undefined;
     let unlistenTray: (() => void) | undefined;
@@ -753,20 +766,22 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             ? incomingDL
             : d.downloaded;
 
-          const finalSize = (incomingTotal !== undefined && incomingTotal !== null && incomingTotal >= 0)
+          let finalStatus = (payload.status as any) || d.status;
+          if (payload.status === 'Finished' || isFinished || (incomingTotal && incomingTotal > 0 && finalDL >= incomingTotal)) {
+            finalStatus = 'Finished';
+          }
+
+          const finalSize = (incomingTotal !== undefined && incomingTotal !== null && incomingTotal > 0)
             ? incomingTotal
-            : (d.size || 0);
+            : ((finalStatus === 'Finished' || isFinished) && finalDL > 0
+              ? finalDL
+              : (d.size || 0));
 
           const updatedFilename = payload.filename || d.name;
           const detectedCat = detectCategory(updatedFilename || d.url, d.protocol || payload.protocol);
           const updatedCat = (d.category && d.category !== 'All' && !((d.category === 'Programs' || d.category === 'Documents') && (detectedCat === 'Videos' || detectedCat === 'Torrents' || detectedCat === 'Compressed')))
             ? d.category
             : detectedCat;
-
-          let finalStatus = (payload.status as any) || d.status;
-          if (payload.status === 'Finished' || isFinished || (finalSize > 0 && finalDL >= finalSize)) {
-            finalStatus = 'Finished';
-          }
 
           let updatedResumeSupport = d.resumeSupport;
           if (payload.resume_support !== undefined && payload.resume_support !== null) {
@@ -929,7 +944,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               name: rawFilename,
               category: updatedCat,
               url: payload.url || '',
-              size: incomingTotal >= 0 ? incomingTotal : 0,
+              size: incomingTotal > 0 ? incomingTotal : (isFinished && incomingDL > 0 ? incomingDL : 0),
               downloaded: incomingDL >= 0 ? incomingDL : 0,
               status: (payload.status as any) || 'Downloading',
               speed: finalSpeed,
@@ -1209,8 +1224,49 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         });
 
+        unlistenCompleted = await listen<any>('download-completed', (event: { payload: any }) => {
+          const payload = event.payload || {};
+          const taskId = payload.task_id || payload.taskId || payload.id;
+          if (!taskId) return;
+
+          taskRetryMapRef.current.delete(taskId);
+
+          setDownloads((prev) => {
+            const next = prev.map((d) => {
+              if (d.id === taskId) {
+                const finalFn = payload.filename || payload.name || d.name;
+                const finalPath = payload.save_path || payload.savePath || d.savePath;
+                const finalSize = payload.total_size || payload.total_bytes || payload.totalSize || payload.downloaded || payload.downloaded_bytes || d.size;
+                const finalDL = payload.downloaded || payload.downloaded_bytes || finalSize;
+                const finishTime = d.endTime || d.dateCompleted || new Date().toISOString();
+                return {
+                  ...d,
+                  name: finalFn,
+                  savePath: finalPath,
+                  size: finalSize > 0 ? finalSize : d.size,
+                  downloaded: finalDL > 0 ? finalDL : (finalSize > 0 ? finalSize : d.downloaded),
+                  status: 'Finished' as DownloadStatus,
+                  speed: 0,
+                  timeLeft: '-',
+                  fileMissing: false,
+                  dateCompleted: finishTime,
+                  endTime: finishTime,
+                };
+              }
+              return d;
+            });
+            downloadsRef.current = next;
+            saveToThunderDB('downloads', next);
+            return next;
+          });
+
+          setDetailDownloadId(taskId);
+          scheduleQueueDispatch();
+        });
+
         if (!isMounted) {
           if (unlistenProgress) unlistenProgress();
+          if (unlistenCompleted) unlistenCompleted();
           if (unlistenAdded) unlistenAdded();
           if (unlistenRegister) unlistenRegister();
           if (unlistenTray) unlistenTray();
@@ -1226,6 +1282,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => {
       isMounted = false;
       if (unlistenProgress) unlistenProgress();
+      if (unlistenCompleted) unlistenCompleted();
       if (unlistenAdded) unlistenAdded();
       if (unlistenRegister) unlistenRegister();
       if (unlistenTray) unlistenTray();
@@ -1818,97 +1875,93 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const deleteSelected = async () => {
-    const idsToDelete = Array.from(selectedIds);
-    const remaining = (downloadsRef.current || downloads).filter((d) => !selectedIds.has(d.id));
+  const deleteDownloads = async (ids: string[], deleteFromDisk = false) => {
+    if (!ids || ids.length === 0) return;
+    const idsSet = new Set(ids);
+
+    // Track IDs being deleted to prevent checkDiskFiles race conditions
+    ids.forEach((id) => deletingIdsRef.current.add(id));
+
+    // Build file paths map for backend cleanup
+    const filePathsMap: Record<string, string> = {};
+    const currentList = downloadsRef.current || downloads;
+    currentList.forEach((d) => {
+      if (idsSet.has(d.id)) {
+        const sp = d.savePath || globalSettingsRef.current.downloadPath || defaultSettings.downloadPath || '';
+        if (sp && d.name) {
+          const isWin = sp.includes('\\') || (!sp.includes('/') && /^[a-zA-Z]:/.test(sp));
+          const sep = isWin ? '\\' : '/';
+          const cleanDir = sp.replace(/[\/\\]+$/, '');
+          filePathsMap[d.id] = `${cleanDir}${sep}${d.name}`;
+        }
+      }
+    });
+
+    const remaining = currentList.filter((d) => !idsSet.has(d.id));
     setDownloads(remaining);
     downloadsRef.current = remaining;
     saveToThunderDB('downloads', remaining);
-    setSelectedIds(new Set());
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
 
     try {
-      for (const id of idsToDelete) {
-        await invoke('cancel_download', { id });
-        await invoke('close_realtime_progress_window_command', { id });
+      await invoke('batch_delete_downloads_command', {
+        ids,
+        delete_files_from_disk: deleteFromDisk,
+        file_paths: filePathsMap,
+      });
+    } catch (err) {
+      console.error('Failed to execute batch_delete_downloads_command:', err);
+      // Fallback to individual cancellation
+      for (const id of ids) {
+        try {
+          await invoke('cancel_download', { id });
+          await invoke('close_realtime_progress_window_command', { id });
+        } catch {}
       }
-    } catch {
-      // Browser fallback
+    } finally {
+      setTimeout(() => {
+        ids.forEach((id) => deletingIdsRef.current.delete(id));
+      }, 3000);
     }
+
     dispatchQueueWorkers();
+  };
+
+  const deleteSelected = async (deleteFromDisk = false) => {
+    const idsToDelete = Array.from(selectedIds);
+    await deleteDownloads(idsToDelete, deleteFromDisk);
   };
 
   const deleteAllMissing = async () => {
     const missingItems = (downloadsRef.current || downloads).filter((d) => Boolean(d.fileMissing));
     if (missingItems.length === 0) return;
-    const missingIds = new Set(missingItems.map((d) => d.id));
-    const remaining = (downloadsRef.current || downloads).filter((d) => !missingIds.has(d.id));
-    setDownloads(remaining);
-    downloadsRef.current = remaining;
-    saveToThunderDB('downloads', remaining);
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      missingIds.forEach((id) => next.delete(id));
-      return next;
-    });
-    for (const item of missingItems) {
-      try {
-        await invoke('cancel_download', { id: item.id });
-        await invoke('close_realtime_progress_window_command', { id: item.id });
-      } catch {}
-    }
+    const missingIds = missingItems.map((d) => d.id);
+    await deleteDownloads(missingIds, false);
   };
 
   const deleteAllFinished = async () => {
     const finishedItems = (downloadsRef.current || downloads).filter((d) => d.status === 'Finished');
     if (finishedItems.length === 0) return;
-    const finishedIds = new Set(finishedItems.map((d) => d.id));
-    const remaining = (downloadsRef.current || downloads).filter((d) => !finishedIds.has(d.id));
-    setDownloads(remaining);
-    downloadsRef.current = remaining;
-    saveToThunderDB('downloads', remaining);
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      finishedIds.forEach((id) => next.delete(id));
-      return next;
-    });
+    const finishedIds = finishedItems.map((d) => d.id);
+    await deleteDownloads(finishedIds, false);
   };
 
   const deleteAllUnfinished = async () => {
     const unfinishedItems = (downloadsRef.current || downloads).filter((d) => d.status !== 'Finished');
     if (unfinishedItems.length === 0) return;
-    const unfinishedIds = new Set(unfinishedItems.map((d) => d.id));
-    const remaining = (downloadsRef.current || downloads).filter((d) => !unfinishedIds.has(d.id));
-    setDownloads(remaining);
-    downloadsRef.current = remaining;
-    saveToThunderDB('downloads', remaining);
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      unfinishedIds.forEach((id) => next.delete(id));
-      return next;
-    });
-    for (const item of unfinishedItems) {
-      try {
-        await invoke('cancel_download', { id: item.id });
-        await invoke('close_realtime_progress_window_command', { id: item.id });
-      } catch {}
-    }
+    const unfinishedIds = unfinishedItems.map((d) => d.id);
+    await deleteDownloads(unfinishedIds, false);
   };
 
   const deleteEntireList = async () => {
     const allItems = [...(downloadsRef.current || downloads)];
     if (allItems.length === 0) return;
-    setDownloads([]);
-    downloadsRef.current = [];
-    saveToThunderDB('downloads', []);
-    setSelectedIds(new Set());
-    for (const item of allItems) {
-      try {
-        if (item.status !== 'Finished') {
-          await invoke('cancel_download', { id: item.id });
-          await invoke('close_realtime_progress_window_command', { id: item.id });
-        }
-      } catch {}
-    }
+    const allIds = allItems.map((d) => d.id);
+    await deleteDownloads(allIds, false);
   };
 
   const dispatchQueueWorkers = async (targetQueueId?: string) => {
@@ -2434,6 +2487,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         pauseSelected,
         pauseItem,
         resumeItem,
+        deleteDownloads,
         deleteSelected,
         deleteAllMissing,
         deleteAllFinished,
