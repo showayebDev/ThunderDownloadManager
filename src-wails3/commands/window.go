@@ -40,12 +40,27 @@ func NewWindowCommand() *WindowCommand {
 	return &WindowCommand{}
 }
 
+var globalWindowCommand *WindowCommand
+
 func (c *WindowCommand) SetContext(ctx context.Context) {
 	c.ctx = ctx
 }
 
 func (c *WindowCommand) SetApp(app *application.App) {
 	c.app = app
+	globalWindowCommand = c
+}
+
+func RebuildTrayMenuGlobal() {
+	if globalWindowCommand != nil {
+		globalWindowCommand.RebuildTrayMenu()
+	}
+}
+
+func DebouncedRebuildTrayMenuGlobal() {
+	if globalWindowCommand != nil {
+		globalWindowCommand.DebouncedRebuildTrayMenu()
+	}
 }
 
 func (c *WindowCommand) Minimize() error {
@@ -681,7 +696,7 @@ func (c *WindowCommand) GetActiveTrayDownloads() []*HiddenRealtimeDownload {
 	hiddenDownloadsMu.Lock()
 	defer hiddenDownloadsMu.Unlock()
 
-	// 1. Clean up any completed, canceled, errored, or currently visible downloads from hiddenDownloads map
+	// 1. Clean up any completed, canceled, errored, paused, or currently visible downloads from hiddenDownloads map
 	for id := range hiddenDownloads {
 		state := downloader.GetEngine().GetTaskState(id)
 		if state == nil {
@@ -695,7 +710,7 @@ func (c *WindowCommand) GetActiveTrayDownloads() []*HiddenRealtimeDownload {
 				status = downloader.DownloadStatus(s)
 			}
 		}
-		if status == downloader.StatusFinished || status == downloader.StatusCanceled || status == downloader.StatusError {
+		if status == downloader.StatusFinished || status == downloader.StatusCanceled || status == downloader.StatusError || status == downloader.StatusPaused {
 			delete(hiddenDownloads, id)
 			delete(trayMenuItems, id)
 			continue
@@ -777,7 +792,7 @@ func (c *WindowCommand) RefreshHiddenDownloadsFromEngine() {
 			continue
 		}
 		status, _ := state["status"].(string)
-		if status == string(downloader.StatusFinished) || status == string(downloader.StatusCanceled) || status == string(downloader.StatusError) {
+		if status == string(downloader.StatusFinished) || status == string(downloader.StatusCanceled) || status == string(downloader.StatusError) || status == string(downloader.StatusPaused) {
 			delete(hiddenDownloads, id)
 			delete(trayMenuItems, id)
 			continue

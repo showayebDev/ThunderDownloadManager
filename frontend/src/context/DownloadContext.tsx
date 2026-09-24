@@ -718,6 +718,9 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const handledIds = new Set<string>();
 
         const next = prev.map((d) => {
+          if (deletingIdsRef.current.has(d.id)) {
+            return d;
+          }
           const payload = updates.get(d.id);
           if (!payload) return d;
           handledIds.add(d.id);
@@ -859,6 +862,20 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Auto-discover newly added downloads that were not yet in state
         const newItems: DownloadItem[] = [];
         updates.forEach((payload, taskId) => {
+          if (deletingIdsRef.current.has(taskId)) {
+            return;
+          }
+          // Never auto-create items for terminal / canceled / paused / errored / finished status payloads
+          if (
+            payload.status === 'Canceled' ||
+            payload.status === 'Paused' ||
+            payload.status === 'Error' ||
+            payload.status === 'Finished' ||
+            payload.status === 'Completed'
+          ) {
+            return;
+          }
+
           if (!handledIds.has(taskId) && !prev.some((d) => d.id === taskId)) {
             changed = true;
             handledIds.add(taskId);
@@ -1018,6 +1035,10 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const payload = event.payload;
           const taskId = payload.task_id || payload.id;
           if (!taskId) return;
+          if (deletingIdsRef.current.has(taskId)) {
+            pendingProgressMapRef.current.delete(taskId);
+            return;
+          }
 
           if (payload.status === 'Finished' || (payload.status === 'Downloading' && payload.speed > 0)) {
             taskRetryMapRef.current.delete(taskId);
@@ -1043,7 +1064,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         unlistenError = await listen<any>('download-error', async (event: { payload: any }) => {
           const payload = event.payload || {};
           const taskId = payload.task_id || payload.id;
-          if (!taskId) return;
+          if (!taskId || deletingIdsRef.current.has(taskId)) return;
 
           let maxRetries = 3;
           try {
@@ -1118,7 +1139,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           expectedChecksum?: string;
         }>('download-added', (event: { payload: any }) => {
           const payload = event.payload;
-          if (!payload || !payload.id) return;
+          if (!payload || !payload.id || deletingIdsRef.current.has(payload.id)) return;
           const incomingChecksum = (payload.given_checksum || payload.givenCheckSum || payload.expected_checksum || payload.expectedChecksum || '').trim();
           const prev = downloadsRef.current || [];
           const existingIndex = prev.findIndex((d) => d.id === payload.id);
@@ -1879,8 +1900,12 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!ids || ids.length === 0) return;
     const idsSet = new Set(ids);
 
-    // Track IDs being deleted to prevent checkDiskFiles race conditions
-    ids.forEach((id) => deletingIdsRef.current.add(id));
+    // Track IDs being deleted to prevent checkDiskFiles / progress / error race conditions
+    ids.forEach((id) => {
+      deletingIdsRef.current.add(id);
+      pendingProgressMapRef.current.delete(id);
+      taskRetryMapRef.current.delete(id);
+    });
 
     // Build file paths map for backend cleanup
     const filePathsMap: Record<string, string> = {};
@@ -1925,7 +1950,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setTimeout(() => {
         ids.forEach((id) => deletingIdsRef.current.delete(id));
-      }, 3000);
+      }, 6000);
     }
 
     dispatchQueueWorkers();
