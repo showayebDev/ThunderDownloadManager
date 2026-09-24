@@ -430,8 +430,13 @@ func TestTaskController_ChunkErrorTermination(t *testing.T) {
 	tc.State.DestFilePath = filepath.Join(tempDir, filename)
 	tc.initializeChunks()
 
-	// Simulate all chunks failing into StatusError
+	maxRetries := GetEngineConfig().MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	// Simulate all chunks failing into StatusError with retries exhausted
 	for _, c := range tc.State.Chunks {
+		c.SetRetryCount(maxRetries)
 		c.SetStatus(StatusError)
 	}
 
@@ -466,6 +471,46 @@ func TestTaskController_ChunkErrorTermination(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		tc.cancel()
 		t.Fatalf("Timed out waiting for orchestratorLoop to terminate failed task")
+	}
+}
+
+func TestTaskController_ChunkAutoRetry(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "thunderdm_test_err_retry_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	taskID := fmt.Sprintf("test-retry-task-%d", time.Now().UnixNano())
+	filename := "retry_file.bin"
+	totalSize := int64(1024 * 1024)
+
+	tc := NewTaskController(context.Background(), taskID, "http://127.0.0.1:59999/test", tempDir, filename, 2)
+	tc.State.TotalSize = totalSize
+	tc.State.TempFilePath = filepath.Join(tempDir, filename+".thunderdm")
+	tc.State.DestFilePath = filepath.Join(tempDir, filename)
+	tc.initializeChunks()
+
+	// Set chunk 0 to StatusError with 0 retries
+	tc.State.Chunks[0].SetRetryCount(0)
+	tc.State.Chunks[0].SetStatus(StatusError)
+
+	maxRetries := GetEngineConfig().MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	// Verify ChunkState helper functions
+	if tc.State.Chunks[0].GetRetryCount() != 0 {
+		t.Fatalf("Expected 0 retries, got %d", tc.State.Chunks[0].GetRetryCount())
+	}
+	attempt := tc.State.Chunks[0].IncrementRetryCount()
+	if attempt != 1 || tc.State.Chunks[0].GetRetryCount() != 1 {
+		t.Fatalf("Expected 1 retry attempt, got %d", attempt)
+	}
+	tc.State.Chunks[0].ResetRetryCount()
+	if tc.State.Chunks[0].GetRetryCount() != 0 {
+		t.Fatalf("Expected 0 after reset, got %d", tc.State.Chunks[0].GetRetryCount())
 	}
 }
 

@@ -52,6 +52,7 @@ type ChunkState struct {
 	CurrentByte int64
 	EndByte     int64
 	Status      DownloadStatus
+	RetryCount  int
 	mu          sync.RWMutex
 }
 
@@ -97,6 +98,31 @@ func (c *ChunkState) SetStatus(status DownloadStatus) {
 	c.Status = status
 }
 
+func (c *ChunkState) GetRetryCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.RetryCount
+}
+
+func (c *ChunkState) SetRetryCount(count int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.RetryCount = count
+}
+
+func (c *ChunkState) IncrementRetryCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.RetryCount++
+	return c.RetryCount
+}
+
+func (c *ChunkState) ResetRetryCount() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.RetryCount = 0
+}
+
 func (c *ChunkState) Snapshot() (id int, start, cur, end int64, status DownloadStatus) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -131,6 +157,7 @@ type TaskState struct {
 	Cookies           string
 	Status            DownloadStatus
 	ErrorMessage      string
+	RetryCount        int
 	Chunks            []*ChunkState
 	CacheDir          string
 	IsHLS             bool
@@ -177,6 +204,8 @@ type ProgressPayload struct {
 	ProxyUsed        string         `json:"proxy_used,omitempty"`
 	ErrorMessage     string         `json:"error_message,omitempty"`
 	Error            string         `json:"error,omitempty"`
+	RetryAttempt     int            `json:"retry_attempt,omitempty"`
+	MaxRetries       int            `json:"max_retries,omitempty"`
 	Chunks           []ChunkPayload `json:"chunks"`
 }
 

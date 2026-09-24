@@ -54,8 +54,12 @@ func DownloadChunk(ctx context.Context, url string, chunk *ChunkState, file *os.
 		}
 
 		if attempt > 0 {
-			// Exponential backoff with jitter: 200ms, 400ms, 800ms, 1600ms...
-			backoff := time.Duration(1<<attempt)*150*time.Millisecond + time.Duration(rand.Intn(100))*time.Millisecond
+			// Linear backoff with jitter (e.g. 750ms, 1500ms, 2250ms... max 3000ms)
+			backoffMs := attempt * 750
+			if backoffMs > 3000 {
+				backoffMs = 3000
+			}
+			backoff := time.Duration(backoffMs)*time.Millisecond + time.Duration(rand.Intn(200))*time.Millisecond
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

@@ -307,6 +307,60 @@ func IsYTDLPURL(urlStr string) bool {
 	return false
 }
 
+// ExtractYTDLPFallbackFilename generates a clean, readable fallback filename from any video URL.
+func ExtractYTDLPFallbackFilename(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "video.mp4"
+	}
+	q := parsed.Query()
+	if v := q.Get("v"); v != "" {
+		return SanitizeFilename(v + ".mp4")
+	}
+	cleanPath := strings.Trim(strings.ReplaceAll(parsed.Path, "\\", "/"), "/")
+	parts := strings.Split(cleanPath, "/")
+
+	host := strings.ToLower(parsed.Host)
+	for i, p := range parts {
+		lowerP := strings.ToLower(p)
+		if (lowerP == "p" || lowerP == "reel" || lowerP == "reels" || lowerP == "tv" || lowerP == "shorts" || lowerP == "video" || lowerP == "videos" || lowerP == "status" || lowerP == "clip" || lowerP == "watch") && i+1 < len(parts) {
+			candidate := parts[i+1]
+			if candidate != "" && candidate != "watch" && candidate != "video" && candidate != "index" {
+				candidate = strings.TrimSuffix(candidate, ".html")
+				candidate = strings.TrimSuffix(candidate, ".htm")
+				if strings.Contains(host, "instagram") {
+					return SanitizeFilename("Instagram_" + candidate + ".mp4")
+				} else if strings.Contains(host, "tiktok") {
+					return SanitizeFilename("TikTok_" + candidate + ".mp4")
+				} else if strings.Contains(host, "twitter") || strings.Contains(host, "x.com") {
+					return SanitizeFilename("Twitter_" + candidate + ".mp4")
+				}
+				return SanitizeFilename(candidate + ".mp4")
+			}
+		}
+	}
+
+	last := ""
+	if len(parts) > 0 {
+		last = parts[len(parts)-1]
+	}
+	if last != "" && last != "watch" && last != "video" && last != "index" && last != "default" && last != "reel" && last != "reels" && last != "p" {
+		last = strings.TrimSuffix(last, ".html")
+		last = strings.TrimSuffix(last, ".htm")
+		if !strings.Contains(last, ".") {
+			last += ".mp4"
+		}
+		return SanitizeFilename(last)
+	}
+
+	if host != "" {
+		hostClean := SanitizeFilename(host)
+		return hostClean + "_video.mp4"
+	}
+
+	return "video.mp4"
+}
+
 func (c *Client) Install() error {
 	// Strictly download standalone portable binary into ~/.thunderdm/bin
 	dlErr := downloadYTDLPBinary()
@@ -523,6 +577,17 @@ func buildYTDLPEnv(urlStr string) []string {
 	return env
 }
 
+// IsCookieBrokenHost checks if passing raw header cookies (--add-header "Cookie: ...") is known to break the platform extractor in yt-dlp.
+func IsCookieBrokenHost(uStr string) bool {
+	lower := strings.ToLower(uStr)
+	return strings.Contains(lower, "instagram.com") ||
+		strings.Contains(lower, "threads.net") ||
+		strings.Contains(lower, "tiktok.com") ||
+		strings.Contains(lower, "facebook.com") ||
+		strings.Contains(lower, "fb.watch") ||
+		strings.Contains(lower, "fb.com")
+}
+
 // GetVideoMetadata fetches complete video metadata including title and formats using yt-dlp JSON output.
 func (c *Client) GetVideoMetadata(urlStr string, cookies ...string) (*VideoMetadata, error) {
 	exe := GetYTDLPExecutable()
@@ -531,48 +596,73 @@ func (c *Client) GetVideoMetadata(urlStr string, cookies ...string) (*VideoMetad
 	}
 	c.Executable = exe
 
-	args := []string{"--no-playlist", "--skip-download", "-J"}
-	if ffmpegLoc := GetFFmpegLocation(); ffmpegLoc != "" {
-		args = append(args, "--ffmpeg-location", ffmpegLoc)
-	}
+	cookieVal := ""
 	if len(cookies) > 0 && cookies[0] != "" {
-		args = append(args, "--add-header", "Cookie: "+cookies[0])
-	}
-	if proxyStr := GetProxyManager().GetProxyStringForURL(urlStr); proxyStr != "" {
-		args = append(args, "--proxy", proxyStr)
-	} else {
-		args = append(args, "--proxy", "")
-	}
-	args = append(args, urlStr)
-
-	cmd := PrepareCmd(exec.Command(c.Executable, args...))
-	cmd.Env = buildYTDLPEnv(urlStr)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
+		cookieVal = cookies[0]
 	}
 
-	var metadata VideoMetadata
-	if err := json.Unmarshal(out.Bytes(), &metadata); err != nil {
-		return nil, fmt.Errorf("failed to parse metadata JSON: %w", err)
-	}
+	execWithArgs := func(useCookie bool) (*VideoMetadata, error) {
+		args := []string{
+			"--no-playlist", "--skip-download", "-J",
+			"--socket-timeout", "8", "--extractor-retries", "1",
+			"--no-warnings",
+		}
+		if ffmpegLoc := GetFFmpegLocation(); ffmpegLoc != "" {
+			args = append(args, "--ffmpeg-location", ffmpegLoc)
+		}
+		if useCookie && cookieVal != "" && !IsCookieBrokenHost(urlStr) {
+			args = append(args, "--add-header", "Cookie: "+cookieVal)
+		}
+		if proxyStr := GetProxyManager().GetProxyStringForURL(urlStr); proxyStr != "" {
+			args = append(args, "--proxy", proxyStr)
+		} else {
+			args = append(args, "--proxy", "")
+		}
+		args = append(args, urlStr)
 
-	var formats []Format
-	seenRes := make(map[string]bool)
+		cmd := PrepareCmd(exec.Command(c.Executable, args...))
+		cmd.Env = buildYTDLPEnv(urlStr)
+		var out bytes.Buffer
+		var errBuf bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &errBuf
 
-	for _, f := range metadata.Formats {
-		if f.VCodec != "none" && f.VCodec != "images" && f.Resolution != "" && f.Resolution != "audio only" {
-			if !seenRes[f.Resolution] {
-				seenRes[f.Resolution] = true
-				formats = append(formats, f)
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to fetch metadata: %w, stderr: %s", err, strings.TrimSpace(errBuf.String()))
+		}
+
+		var metadata VideoMetadata
+		if err := json.Unmarshal(out.Bytes(), &metadata); err != nil {
+			return nil, fmt.Errorf("failed to parse metadata JSON: %w", err)
+		}
+
+		var formats []Format
+		seenRes := make(map[string]bool)
+
+		for _, f := range metadata.Formats {
+			if f.VCodec != "none" && f.VCodec != "images" && f.Resolution != "" && f.Resolution != "audio only" {
+				if !seenRes[f.Resolution] {
+					seenRes[f.Resolution] = true
+					formats = append(formats, f)
+				}
 			}
 		}
-	}
-	metadata.Formats = formats
+		metadata.Formats = formats
 
-	return &metadata, nil
+		return &metadata, nil
+	}
+
+	// 1. Try with cookies if provided and safe
+	if cookieVal != "" && !IsCookieBrokenHost(urlStr) {
+		meta, err := execWithArgs(true)
+		if err == nil && meta != nil {
+			return meta, nil
+		}
+		log.Printf("[YTDLP] Metadata fetch with cookies failed: %v, retrying without cookies...\n", err)
+	}
+
+	// 2. Try without cookies
+	return execWithArgs(false)
 }
 
 // GetFormats fetches formats and filters to return video and audio options.
@@ -592,12 +682,21 @@ func (c *Client) Download(opts DownloadOptions, progressCallback func(line strin
 	}
 	c.Executable = exe
 
-	args := []string{"--newline", "--no-playlist", "--continue", "--part", "--windows-filenames", "--trim-filenames", "120"}
+	cfg := GetEngineConfig()
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	args := []string{
+		"--newline", "--no-playlist", "--continue", "--part", "--windows-filenames", "--trim-filenames", "120",
+		"--retries", strconv.Itoa(maxRetries), "--fragment-retries", strconv.Itoa(maxRetries),
+	}
 	if ffmpegLoc := GetFFmpegLocation(); ffmpegLoc != "" {
 		args = append(args, "--ffmpeg-location", ffmpegLoc)
 	}
 
-	if opts.Cookies != "" {
+	if opts.Cookies != "" && !IsCookieBrokenHost(opts.URL) {
 		args = append(args, "--add-header", "Cookie: "+opts.Cookies)
 	}
 
@@ -950,7 +1049,16 @@ func (t *YTDLPTaskController) Start() {
 
 	log.Printf("[YTDLPTaskController] Starting YT-DLP download for Task %s, URL: %s, Filename: %s, Quality: %s\n", t.State.ID, t.State.URL, t.State.Filename, t.quality)
 
-	args := []string{"--newline", "--no-playlist", "--continue", "--part", "--windows-filenames", "--trim-filenames", "120"}
+	cfg := GetEngineConfig()
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	args := []string{
+		"--newline", "--no-playlist", "--continue", "--part", "--windows-filenames", "--trim-filenames", "120",
+		"--retries", strconv.Itoa(maxRetries), "--fragment-retries", strconv.Itoa(maxRetries),
+	}
 	if ffmpegLoc := GetFFmpegLocation(); ffmpegLoc != "" {
 		args = append(args, "--ffmpeg-location", ffmpegLoc)
 	}
@@ -974,10 +1082,12 @@ func (t *YTDLPTaskController) Start() {
 		args = append(args, "-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4")
 	}
 
-	if t.cookies != "" {
-		args = append(args, "--add-header", "Cookie: "+t.cookies)
-	} else if t.State.Cookies != "" {
-		args = append(args, "--add-header", "Cookie: "+t.State.Cookies)
+	if !IsCookieBrokenHost(t.State.URL) {
+		if t.cookies != "" {
+			args = append(args, "--add-header", "Cookie: "+t.cookies)
+		} else if t.State.Cookies != "" {
+			args = append(args, "--add-header", "Cookie: "+t.State.Cookies)
+		}
 	}
 
 	if t.userAgent != "" {
@@ -1008,51 +1118,6 @@ func (t *YTDLPTaskController) Start() {
 		t.handleError(fmt.Errorf("YT-DLP is not installed in ThunderDM. Please install media tools from the menu."))
 		return
 	}
-	t.cmd = PrepareCmd(exec.CommandContext(t.ctx, exePath, args...))
-	t.cmd.Env = buildYTDLPEnv(t.State.URL)
-
-	stdout, err := t.cmd.StdoutPipe()
-	if err != nil {
-		t.handleError(fmt.Errorf("failed to create stdout pipe: %w", err))
-		return
-	}
-
-	t.cmd.Stderr = os.Stderr
-
-	if err := t.cmd.Start(); err != nil {
-		t.handleError(fmt.Errorf("failed to execute ThunderDM YT-DLP: %w", err))
-		return
-	}
-
-	// Read stdout lines asynchronously
-	go func() {
-		buf := make([]byte, 1024)
-		var lineBuf strings.Builder
-
-		for {
-			n, err := stdout.Read(buf)
-			if n > 0 {
-				chunk := string(buf[:n])
-				for _, r := range chunk {
-					if r == '\r' || r == '\n' {
-						line := lineBuf.String()
-						if strings.TrimSpace(line) != "" {
-							t.processOutputLine(line)
-						}
-						lineBuf.Reset()
-					} else {
-						lineBuf.WriteRune(r)
-					}
-				}
-			}
-			if err != nil {
-				break
-			}
-		}
-		if lineBuf.Len() > 0 {
-			t.processOutputLine(lineBuf.String())
-		}
-	}()
 
 	// Periodic progress emitter
 	go func() {
@@ -1069,31 +1134,144 @@ func (t *YTDLPTaskController) Start() {
 		}
 	}()
 
-	err = t.cmd.Wait()
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		select {
+		case <-t.ctx.Done():
+			return
+		default:
+		}
 
-	t.mu.Lock()
-	t.cmd = nil
-	defer t.mu.Unlock()
+		if attempt > 0 {
+			t.mu.Lock()
+			t.State.Status = StatusDownloading
+			t.State.ErrorMessage = fmt.Sprintf("Reconnecting (attempt %d/%d)...", attempt, maxRetries)
+			t.mu.Unlock()
+			t.emitProgress()
+			time.Sleep(1500 * time.Millisecond)
+		}
 
-	if t.isPaused {
-		t.State.Status = StatusPaused
-		t.emitProgress()
-		return
+		t.mu.Lock()
+		if t.isCanceled || t.isPaused {
+			t.mu.Unlock()
+			return
+		}
+
+		// On retry attempts, if the previous attempt failed and cookie header was included, try without it
+		currentArgs := make([]string, 0, len(args))
+		skipNext := false
+		for _, arg := range args {
+			if skipNext {
+				skipNext = false
+				continue
+			}
+			if attempt > 0 && arg == "--add-header" {
+				skipNext = true
+				continue
+			}
+			if attempt > 0 && strings.HasPrefix(arg, "Cookie: ") {
+				continue
+			}
+			currentArgs = append(currentArgs, arg)
+		}
+
+		t.cmd = PrepareCmd(exec.CommandContext(t.ctx, exePath, currentArgs...))
+		t.cmd.Env = buildYTDLPEnv(t.State.URL)
+
+		stdout, err := t.cmd.StdoutPipe()
+		if err != nil {
+			t.mu.Unlock()
+			lastErr = fmt.Errorf("failed to create stdout pipe: %w", err)
+			continue
+		}
+
+		var stderrBuf bytes.Buffer
+		t.cmd.Stderr = &stderrBuf
+
+		if err := t.cmd.Start(); err != nil {
+			t.mu.Unlock()
+			lastErr = fmt.Errorf("failed to execute ThunderDM YT-DLP: %w", err)
+			continue
+		}
+		t.mu.Unlock()
+
+		// Read stdout lines asynchronously
+		go func() {
+			buf := make([]byte, 1024)
+			var lineBuf strings.Builder
+
+			for {
+				n, err := stdout.Read(buf)
+				if n > 0 {
+					chunk := string(buf[:n])
+					for _, r := range chunk {
+						if r == '\r' || r == '\n' {
+							line := lineBuf.String()
+							if strings.TrimSpace(line) != "" {
+								t.processOutputLine(line)
+							}
+							lineBuf.Reset()
+						} else {
+							lineBuf.WriteRune(r)
+						}
+					}
+				}
+				if err != nil {
+					break
+				}
+			}
+			if lineBuf.Len() > 0 {
+				t.processOutputLine(lineBuf.String())
+			}
+		}()
+
+		err = t.cmd.Wait()
+
+		t.mu.Lock()
+		t.cmd = nil
+		isPaused := t.isPaused
+		isCanceled := t.isCanceled
+		t.mu.Unlock()
+
+		if isPaused {
+			t.mu.Lock()
+			t.State.Status = StatusPaused
+			t.mu.Unlock()
+			t.emitProgress()
+			return
+		}
+
+		if isCanceled {
+			t.mu.Lock()
+			t.State.Status = StatusCanceled
+			t.mu.Unlock()
+			t.emitProgress()
+			return
+		}
+
+		if err == nil {
+			lastErr = nil
+			break
+		}
+		stderrStr := strings.TrimSpace(stderrBuf.String())
+		if stderrStr != "" {
+			lastErr = fmt.Errorf("%w: %s", err, stderrStr)
+		} else {
+			lastErr = err
+		}
+		log.Printf("[YTDLPTaskController] Task %s attempt %d/%d failed: %v", t.State.ID, attempt+1, maxRetries, lastErr)
 	}
 
-	if t.isCanceled {
-		t.State.Status = StatusCanceled
-		t.emitProgress()
-		return
-	}
-
-	if err != nil {
-		t.handleError(fmt.Errorf("yt-dlp download failed: %w", err))
+	if lastErr != nil {
+		t.handleError(fmt.Errorf("yt-dlp download failed after %d attempts: %w", maxRetries, lastErr))
 		return
 	}
 
 	// Successfully completed
+	t.mu.Lock()
 	t.State.Status = StatusFinished
+	t.State.ErrorMessage = ""
+	t.mu.Unlock()
 
 	// Stat the actual finished file size on disk for 100% precision
 	destPath := filepath.Join(t.State.SavePath, t.State.Filename)

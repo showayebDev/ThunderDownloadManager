@@ -94,6 +94,8 @@ export const RealTimeDownloadProgress: React.FC = () => {
   const nameRef = useRef<string>('');
   const downloadedRef = useRef<number>(0);
   const totalSizeRef = useRef<number>(0);
+  const retryAttemptsRef = useRef<number>(0);
+  const autoRetryTimerRef = useRef<any>(null);
 
   const handleMinimize = async () => {
     try {
@@ -155,15 +157,48 @@ export const RealTimeDownloadProgress: React.FC = () => {
     }
     if (p.save_path || p.savePath) setSavePath(p.save_path || p.savePath);
 
+    const ytDlpDomains = [
+      'youtube.com',
+      'youtu.be',
+      'music.youtube.com',
+      'vimeo.com',
+      'dailymotion.com',
+      'dai.ly',
+      'tiktok.com',
+      'douyin.com',
+      'kuaishou.com',
+      'instagram.com',
+      'threads.net',
+      'facebook.com',
+      'fb.watch',
+      'fb.com',
+      'twitter.com',
+      'x.com',
+      'twitch.tv',
+      'soundcloud.com',
+      'bandcamp.com',
+      'mixcloud.com',
+      'bilibili.com',
+      'bilibili.tv',
+      'bilibili.co',
+      'reddit.com',
+      'streamable.com',
+      'loom.com',
+      'pinterest.com',
+      'pin.it',
+      'vk.com',
+      'ok.ru',
+      'rumble.com',
+      'odysee.com',
+      'bitchute.com',
+      'weibo.com',
+    ];
     if (
       p.is_ytdlp ||
+      p.isYTDLP ||
       p.protocol === 'Yt-DLP' ||
       (typeof p.protocol === 'string' && p.protocol.startsWith('Yt-DLP')) ||
-      (p.url &&
-        (p.url.includes('youtube.com') ||
-          p.url.includes('youtu.be') ||
-          p.url.includes('vimeo.com') ||
-          p.url.includes('tiktok.com')))
+      (p.url && ytDlpDomains.some((d) => p.url.toLowerCase().includes(d)))
     ) {
       setIsYTDLP(true);
     }
@@ -192,7 +227,12 @@ export const RealTimeDownloadProgress: React.FC = () => {
       }
     }
 
-    if (p.speed !== undefined && p.speed !== null) setSpeed(p.speed);
+    if (p.speed !== undefined && p.speed !== null) {
+      setSpeed(p.speed);
+      if (p.speed > 0 && p.status === 'Downloading') {
+        retryAttemptsRef.current = 0;
+      }
+    }
     if (p.status) {
       if (p.status === 'Canceled' || p.status === 'Cancelled') {
         Quit();
@@ -338,6 +378,11 @@ export const RealTimeDownloadProgress: React.FC = () => {
             setSpeedLimitVal(Math.round(gLimit / 1024));
           }
         }
+        try {
+          const ytRes = await invoke<any>('check_ytdlp');
+          const allInst = Boolean(ytRes?.allInstalled ?? (ytRes?.installed && ytRes?.ffmpegInstalled));
+          setIsYtdlpInstalled(allInst);
+        } catch {}
       } catch {}
 
       const urlTaskId = getInitialTaskId();
@@ -423,13 +468,36 @@ export const RealTimeDownloadProgress: React.FC = () => {
         });
       }
 
-      unlistenError = await listen('download-error', (event: any) => {
+      unlistenError = await listen('download-error', async (event: any) => {
         const p = event.payload || {};
         const tid = p.id || p.task_id;
         if (tid && tid === taskIdRef.current) {
+          let maxRetries = 3;
+          try {
+            const dbEngine = await loadFromThunderDB<any>('download_engine', null);
+            if (dbEngine && dbEngine.maxRetries !== undefined) {
+              maxRetries = Number(dbEngine.maxRetries) || 3;
+            }
+          } catch {}
+
+          if (retryAttemptsRef.current < maxRetries) {
+            retryAttemptsRef.current += 1;
+            const attempt = retryAttemptsRef.current;
+            setStatus('Downloading');
+            statusRef.current = 'Downloading';
+            setErrorMessage(`Reconnecting (attempt ${attempt}/${maxRetries})...`);
+            if (autoRetryTimerRef.current) {
+              clearTimeout(autoRetryTimerRef.current);
+            }
+            autoRetryTimerRef.current = setTimeout(async () => {
+              await handleRetryDownload();
+            }, 1500);
+            return;
+          }
+
           setStatus('Error');
           statusRef.current = 'Error';
-          setErrorMessage(p.error || 'Unknown error occurred.');
+          setErrorMessage(p.error || `Download failed after ${maxRetries} retry attempts`);
         }
       });
     }
@@ -437,6 +505,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
     init();
 
     return () => {
+      if (autoRetryTimerRef.current) clearTimeout(autoRetryTimerRef.current);
       if (unlistenProgress) unlistenProgress();
       if (unlistenOpen) unlistenOpen();
       if (unlistenError) unlistenError();
@@ -472,12 +541,11 @@ export const RealTimeDownloadProgress: React.FC = () => {
   const isCompleted = status === 'Finished' || status === 'Completed';
   const isYtdlpError =
     isYTDLP &&
-    ((errorMessage &&
-      (errorMessage.includes('yt-dlp') ||
-        errorMessage.includes('YT-DLP') ||
-        errorMessage.includes('not found') ||
-        errorMessage.includes('executable file not found'))) ||
-      !isYtdlpInstalled);
+    (!isYtdlpInstalled ||
+      (Boolean(errorMessage) &&
+        (errorMessage!.toLowerCase().includes('yt-dlp is not installed') ||
+          errorMessage!.toLowerCase().includes('executable file not found') ||
+          errorMessage!.toLowerCase().includes('not found on your system'))));
 
   useEffect(() => {
     if (isCompleted) {
@@ -566,6 +634,11 @@ export const RealTimeDownloadProgress: React.FC = () => {
   const handleRetryDownload = async () => {
     const currentId = taskIdRef.current || taskId;
     if (!currentId) return;
+    if (autoRetryTimerRef.current) {
+      clearTimeout(autoRetryTimerRef.current);
+      autoRetryTimerRef.current = null;
+    }
+    retryAttemptsRef.current = 0;
     setStatus('Downloading');
     statusRef.current = 'Downloading';
     setErrorMessage(null);

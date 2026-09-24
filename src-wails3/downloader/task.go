@@ -482,10 +482,14 @@ func (tc *TaskController) preCheck() error {
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
+			backoffMs := attempt * 1000
+			if backoffMs > 4000 {
+				backoffMs = 4000
+			}
 			select {
 			case <-ctxProbe.Done():
 				return ctxProbe.Err()
-			case <-time.After(time.Duration(attempt*200) * time.Millisecond):
+			case <-time.After(time.Duration(backoffMs) * time.Millisecond):
 			}
 		}
 
@@ -748,6 +752,12 @@ func (tc *TaskController) orchestratorLoop() {
 			allFinished := len(tc.State.Chunks) > 0
 			var totalDownloaded int64 = 0
 
+			cfg := GetEngineConfig()
+			maxRetries := cfg.MaxRetries
+			if maxRetries <= 0 {
+				maxRetries = 3
+			}
+
 			for _, c := range tc.State.Chunks {
 				id, start, cur, end, status := c.Snapshot()
 				_ = id
@@ -780,12 +790,33 @@ func (tc *TaskController) orchestratorLoop() {
 				return
 			}
 
+			// Check if any errorChunks can be retried according to maxRetries setting
+			retriedAny := false
+			for _, ec := range errorChunks {
+				if ec.GetRetryCount() < maxRetries {
+					attemptNum := ec.IncrementRetryCount()
+					ec.SetStatus(StatusPending)
+					pendingChunks = append(pendingChunks, ec)
+					retriedAny = true
+					log.Printf("[TaskController] Auto-retrying chunk %d (attempt %d/%d) for task %s", ec.ID+1, attemptNum, maxRetries, tc.State.ID)
+				}
+			}
+			if retriedAny {
+				tc.State.Status = StatusDownloading
+				if len(errorChunks) > 0 {
+					tc.State.ErrorMessage = fmt.Sprintf("Reconnecting (attempt %d/%d)...", errorChunks[0].GetRetryCount(), maxRetries)
+				}
+				time.AfterFunc(1000*time.Millisecond, func() {
+					tc.triggerWorkerCheck()
+				})
+			}
+
 			// If no workers active, no pending chunks, and not all finished:
-			// Fail the task cleanly to prevent infinite loop or freeze
+			// Fail the task cleanly because all retries have been exhausted
 			if activeWorkers == 0 && len(pendingChunks) == 0 && !allFinished {
 				tc.State.Status = StatusError
 				if tc.State.ErrorMessage == "" {
-					tc.State.ErrorMessage = "Download failed: connection or server error"
+					tc.State.ErrorMessage = fmt.Sprintf("Download failed after %d retry attempts", maxRetries)
 				}
 				errMsg := tc.State.ErrorMessage
 				taskID := tc.State.ID
@@ -854,9 +885,13 @@ func (tc *TaskController) orchestratorLoop() {
 						tc.cancelsMu.Unlock()
 						tc.workers.Done()
 					}()
+					startCur := chk.GetCurrentByte()
 					err := DownloadChunk(wCtx, tc.State.URL, chk, tc.targetFile, SharedHTTPClient, tc.limiter, func(c0 *ChunkState) {
 						tc.FallbackToSingleStream(c0)
 					}, tc.State.AuthUsername, tc.State.AuthPassword, tc.State.UserAgent, tc.State.Referer, tc.State.Cookies)
+					if chk.GetCurrentByte() > startCur+64*1024 {
+						chk.ResetRetryCount()
+					}
 					if err != nil && wCtx.Err() == nil {
 						tc.State.mu.Lock()
 						if tc.State.ErrorMessage == "" {
