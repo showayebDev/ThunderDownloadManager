@@ -10,9 +10,30 @@ import (
 )
 
 var (
-	normalizeRegex = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F_\-\.\+\s\(\)\[\]·｜？：＂＜＞＊／＼]+`)
-	invalidChars   = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
+	normalizeRegex          = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F_\-\.\+\s\(\)\[\]·｜？：＂＜＞＊／＼]+`)
+	invalidChars            = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
+	intermediateFormatRegex = regexp.MustCompile(`(?i)\.f\d+\.[a-z0-9]+$|\.part-Frag\d+|\.frag\d+\.part$`)
 )
+
+// IsIntermediateDownloadFile checks if a file is an active partial/temporary file (.part, .ytdl, .f137.mp4, etc.)
+func IsIntermediateDownloadFile(name string) bool {
+	nameLower := strings.ToLower(name)
+	if strings.HasSuffix(nameLower, ".part") ||
+		strings.HasSuffix(nameLower, ".ytdl") ||
+		strings.HasSuffix(nameLower, ".thunderdm") ||
+		strings.HasSuffix(nameLower, ".temp") ||
+		strings.HasSuffix(nameLower, ".tmp") ||
+		strings.HasSuffix(nameLower, ".merging") ||
+		strings.HasSuffix(nameLower, ".bolt.db") ||
+		strings.Contains(nameLower, ".part-frag") ||
+		strings.Contains(nameLower, ".temp.") {
+		return true
+	}
+	if intermediateFormatRegex.MatchString(nameLower) {
+		return true
+	}
+	return false
+}
 
 func cleanForMatching(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -116,10 +137,12 @@ func ResolveExistingFilePath(path string) string {
 	// Step 1: Direct exact and sanitized candidate lookup across all candidate directories
 	for _, d := range searchDirs {
 		cand := filepath.Join(d, filename)
-		if _, err := os.Stat(cand); err == nil {
-			return cand
+		if !IsIntermediateDownloadFile(filename) {
+			if _, err := os.Stat(cand); err == nil {
+				return cand
+			}
 		}
-		if sanitizedName != filename {
+		if sanitizedName != filename && !IsIntermediateDownloadFile(sanitizedName) {
 			candSan := filepath.Join(d, sanitizedName)
 			if _, err := os.Stat(candSan); err == nil {
 				return candSan
@@ -140,14 +163,7 @@ func ResolveExistingFilePath(path string) string {
 
 		for _, entry := range entries {
 			name := entry.Name()
-			nameLower := strings.ToLower(name)
-			if strings.HasSuffix(nameLower, ".part") ||
-				strings.HasSuffix(nameLower, ".ytdl") ||
-				strings.HasSuffix(nameLower, ".thunderdm") ||
-				strings.HasSuffix(nameLower, ".temp") ||
-				strings.HasSuffix(nameLower, ".tmp") ||
-				strings.HasSuffix(nameLower, ".merging") ||
-				strings.HasSuffix(nameLower, ".bolt.db") {
+			if IsIntermediateDownloadFile(name) {
 				continue
 			}
 

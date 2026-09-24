@@ -526,7 +526,7 @@ export const DownloadTable: React.FC = () => {
 
                     {/* Size */}
                     <TableCell className="px-3 py-2 font-mono text-[11px] text-muted-foreground truncate align-middle">
-                      {formatBytes(item.size, 2, appearance.downloadSizeUnit)}
+                      {formatBytes(item.size > 0 ? item.size : (item.downloaded > 0 ? item.downloaded : 0), 2, appearance.downloadSizeUnit)}
                     </TableCell>
 
                     {/* Status & progress */}

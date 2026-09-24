@@ -15,7 +15,7 @@ import { useAppearance, AppearanceSettings, ColorTheme, applyAppDOMStyles } from
 import { saveToThunderDB, loadFromThunderDB } from '../../utils/thunderDB';
 import { invoke, BrowserOpenURL } from '../../utils/tauriBridge';
 import { ProxyModal, ProxyConfig, defaultProxyConfig } from './ProxyModal';
-import { GlobalSettings, VaultItem } from '../../types/download';
+import { GlobalSettings, VaultItem, CookieBypassRule } from '../../types/download';
 import { FontSelect } from '../common/FontSelect';
 import { HelpTooltip } from '../common/Tooltip';
 
@@ -47,6 +47,16 @@ const COLOR_THEMES: { id: ColorTheme; name: string; hex: string }[] = [
   { id: 'zinc', name: 'Zinc (Monochrome)', hex: '#f4f4f5' },
   { id: 'midnight', name: 'Midnight (Deep Navy)', hex: '#38bdf8' },
   { id: 'oled', name: 'OLED (Pure Pitch Black)', hex: '#a855f7' },
+];
+
+const DEFAULT_COOKIE_BYPASS_RULES: CookieBypassRule[] = [
+  { domain: 'instagram.com', http: true, ytdlp: true, hls: true },
+  { domain: 'tiktok.com', http: true, ytdlp: true, hls: true },
+  { domain: 'facebook.com', http: true, ytdlp: true, hls: true },
+  { domain: 'threads.net', http: true, ytdlp: true, hls: true },
+  { domain: 'fb.watch', http: true, ytdlp: true, hls: true },
+  { domain: 'fb.com', http: true, ytdlp: true, hls: true },
+  { domain: 'youtube.com', http: false, ytdlp: true, hls: false },
 ];
 
 interface SettingRowProps {
@@ -220,6 +230,18 @@ export const SettingsModal: React.FC = () => {
           if (engine.port) setPort(engine.port);
           if (Array.isArray(engine.vaultItems)) setVaultItems(engine.vaultItems);
           if (engine.proxyConfig) setProxyConfig(engine.proxyConfig);
+          if (Array.isArray(engine.cookieBypassRules) && engine.cookieBypassRules.length > 0) {
+            setCookieBypassRules(engine.cookieBypassRules);
+          } else if (Array.isArray(engine.cookieBypassDomains) && engine.cookieBypassDomains.length > 0) {
+            setCookieBypassRules(
+              engine.cookieBypassDomains.map((d: string) => ({
+                domain: d,
+                http: true,
+                ytdlp: true,
+                hls: true,
+              }))
+            );
+          }
         }
       } catch (err) {
         console.error('Failed to load engine settings in SettingsModal:', err);
@@ -306,6 +328,67 @@ export const SettingsModal: React.FC = () => {
   const [browserIntegration, setBrowserIntegration] = useState(savedSettings.browserIntegration ?? true);
   const [port, setPort] = useState(savedSettings.port || '37555');
 
+  const [cookieBypassRules, setCookieBypassRules] = useState<CookieBypassRule[]>(() => {
+    if (Array.isArray(globalSettings?.cookieBypassRules) && globalSettings.cookieBypassRules.length > 0) {
+      return globalSettings.cookieBypassRules;
+    }
+    if (Array.isArray(savedSettings?.cookieBypassRules) && savedSettings.cookieBypassRules.length > 0) {
+      return savedSettings.cookieBypassRules;
+    }
+    return DEFAULT_COOKIE_BYPASS_RULES;
+  });
+  const [newRuleDomain, setNewRuleDomain] = useState<string>('');
+  const [newRuleHttp, setNewRuleHttp] = useState<boolean>(true);
+  const [newRuleYtdlp, setNewRuleYtdlp] = useState<boolean>(true);
+  const [newRuleHls, setNewRuleHls] = useState<boolean>(true);
+
+  const handleAddRule = () => {
+    const trimmed = newRuleDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (trimmed) {
+      const existingIdx = cookieBypassRules.findIndex((r) => r.domain.toLowerCase() === trimmed);
+      if (existingIdx >= 0) {
+        const updated = [...cookieBypassRules];
+        updated[existingIdx] = {
+          domain: trimmed,
+          http: newRuleHttp,
+          ytdlp: newRuleYtdlp,
+          hls: newRuleHls,
+        };
+        setCookieBypassRules(updated);
+      } else {
+        setCookieBypassRules([
+          ...cookieBypassRules,
+          {
+            domain: trimmed,
+            http: newRuleHttp,
+            ytdlp: newRuleYtdlp,
+            hls: newRuleHls,
+          },
+        ]);
+      }
+      setNewRuleDomain('');
+    }
+  };
+
+  const handleToggleRuleProtocol = (domain: string, protocol: 'http' | 'ytdlp' | 'hls') => {
+    setCookieBypassRules(
+      cookieBypassRules.map((r) => {
+        if (r.domain.toLowerCase() === domain.toLowerCase()) {
+          return { ...r, [protocol]: !r[protocol] };
+        }
+        return r;
+      })
+    );
+  };
+
+  const handleRemoveRule = (domainToRemove: string) => {
+    setCookieBypassRules(cookieBypassRules.filter((r) => r.domain.toLowerCase() !== domainToRemove.toLowerCase()));
+  };
+
+  const handleResetRules = () => {
+    setCookieBypassRules(DEFAULT_COOKIE_BYPASS_RULES);
+  };
+
   const handleProxySave = (newConfig: ProxyConfig) => {
     setProxyConfig(newConfig);
     try {
@@ -377,6 +460,8 @@ export const SettingsModal: React.FC = () => {
       autoStartWithSystem: startOnBoot,
       onCompletionAction: globalSettings.onCompletionAction || 'none',
       showEndTime,
+      cookieBypassRules,
+      cookieBypassDomains: cookieBypassRules.map((r) => r.domain),
     };
 
     isSavedRef.current = true;
@@ -427,6 +512,7 @@ export const SettingsModal: React.FC = () => {
     setSparseFileAllocation(true);
     setBrowserIntegration(true);
     setPort('37555');
+    setCookieBypassRules(DEFAULT_COOKIE_BYPASS_RULES);
   };
 
   const TABS = [
@@ -995,6 +1081,156 @@ export const SettingsModal: React.FC = () => {
                   >
                     <Switch checked={deletePartialOnFileCancel} onCheckedChange={setDeletePartialOnFileCancel} />
                   </SettingRow>
+                </div>
+
+                {/* Global Cookie Bypass Rules (HTTP / YT-DLP / HLS) */}
+                <div className="rounded-xl border border-border/70 bg-card/60 shadow-xs overflow-hidden p-4 space-y-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-foreground">
+                          Cookie Bypass Rules (Global: HTTP / YT-DLP / HLS)
+                        </span>
+                        <HelpTooltip description="Selectively bypass sending browser session cookies for specific domains and download protocols to prevent extractor crashes or download anonymously." />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Configure which download engines (HTTP, YT-DLP, HLS) will omit cookie headers for each domain.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleResetRules}
+                      className="h-7 text-[11px] text-muted-foreground hover:text-foreground px-2.5 rounded-lg border border-border/50 cursor-pointer shrink-0"
+                    >
+                      Reset Defaults
+                    </Button>
+                  </div>
+
+                  {/* Add Rule Controls */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2.5 rounded-lg bg-muted/40 border border-border/50">
+                    <Input
+                      type="text"
+                      placeholder="e.g. instagram.com, tiktok.com, example.com"
+                      value={newRuleDomain}
+                      onChange={(e) => setNewRuleDomain(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddRule();
+                        }
+                      }}
+                      className="h-8 text-xs font-mono bg-card border-border flex-1"
+                    />
+
+                    <div className="flex items-center justify-between sm:justify-start gap-3 px-1 text-xs">
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={newRuleHttp}
+                          onChange={(e) => setNewRuleHttp(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/30"
+                        />
+                        <span>HTTP</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={newRuleYtdlp}
+                          onChange={(e) => setNewRuleYtdlp(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/30"
+                        />
+                        <span>YT-DLP</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={newRuleHls}
+                          onChange={(e) => setNewRuleHls(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/30"
+                        />
+                        <span>HLS</span>
+                      </label>
+                    </div>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleAddRule}
+                      className="h-8 text-xs px-3.5 gap-1 font-medium cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Rule</span>
+                    </Button>
+                  </div>
+
+                  {/* Rules List / Table */}
+                  <div className="space-y-1.5 pt-1">
+                    {cookieBypassRules.map((rule) => (
+                      <div
+                        key={rule.domain}
+                        className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/70 text-xs gap-2 transition-colors hover:border-border"
+                      >
+                        <span className="font-mono text-[11px] font-medium text-foreground truncate max-w-[180px] sm:max-w-[240px]">
+                          {rule.domain}
+                        </span>
+
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px]">
+                            <input
+                              type="checkbox"
+                              checked={rule.http}
+                              onChange={() => handleToggleRuleProtocol(rule.domain, 'http')}
+                              className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/30"
+                            />
+                            <span className={rule.http ? 'text-foreground font-medium' : 'text-muted-foreground line-through'}>
+                              HTTP
+                            </span>
+                          </label>
+
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px]">
+                            <input
+                              type="checkbox"
+                              checked={rule.ytdlp}
+                              onChange={() => handleToggleRuleProtocol(rule.domain, 'ytdlp')}
+                              className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/30"
+                            />
+                            <span className={rule.ytdlp ? 'text-foreground font-medium' : 'text-muted-foreground line-through'}>
+                              YT-DLP
+                            </span>
+                          </label>
+
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px]">
+                            <input
+                              type="checkbox"
+                              checked={rule.hls}
+                              onChange={() => handleToggleRuleProtocol(rule.domain, 'hls')}
+                              className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/30"
+                            />
+                            <span className={rule.hls ? 'text-foreground font-medium' : 'text-muted-foreground line-through'}>
+                              HLS
+                            </span>
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRule(rule.domain)}
+                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded p-1 cursor-pointer transition-colors ml-1"
+                            title={`Remove rule for ${rule.domain}`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {cookieBypassRules.length === 0 && (
+                      <div className="text-center py-3 text-[11px] text-muted-foreground italic border border-dashed border-border/60 rounded-lg">
+                        No bypass rules configured. Cookies will be sent for all requests.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

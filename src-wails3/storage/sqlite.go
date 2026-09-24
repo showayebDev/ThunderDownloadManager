@@ -718,6 +718,12 @@ func UpdateDownloadProgress(id string, downloaded int64, totalSize int64, status
 		return err
 	}
 
+	if status == "Finished" && totalSize <= 0 && downloaded > 0 {
+		totalSize = downloaded
+	} else if totalSize <= 0 && downloaded > 0 {
+		totalSize = downloaded
+	}
+
 	if len(chunks) > 0 {
 		_, err = db.Exec(`UPDATE downloads SET downloaded = ?, size = ?, status = ?, error_message = ?, chunks_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;`, downloaded, totalSize, status, errMsg, string(chunks), id)
 	} else {
@@ -746,6 +752,31 @@ func CheckFilenameExists(savePath, filename string) bool {
 	return count > 0
 }
 
+// DeleteDownloads removes multiple download records from SQLite downloads table by their IDs.
+func DeleteDownloads(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	dbWriteMu.Lock()
+	defer dbWriteMu.Unlock()
+
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`DELETE FROM downloads WHERE id IN (%s);`, strings.Join(placeholders, ","))
+	_, err = db.Exec(query, args...)
+	return err
+}
+
 func normalizeKey(key string) string {
 	k := strings.TrimSpace(key)
 	if strings.HasSuffix(k, ".json") {
@@ -753,3 +784,4 @@ func normalizeKey(key string) string {
 	}
 	return k
 }
+

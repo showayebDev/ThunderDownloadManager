@@ -422,7 +422,7 @@ func (tc *HLSTaskController) downloadSegment(segState *HLSSegmentState) {
 		if tc.State.Referer != "" {
 			req.Header.Set("Referer", tc.State.Referer)
 		}
-		if tc.State.Cookies != "" {
+		if tc.State.Cookies != "" && !ShouldBypassCookies(tc.State.URL, "hls") {
 			req.Header.Set("Cookie", tc.State.Cookies)
 		}
 
