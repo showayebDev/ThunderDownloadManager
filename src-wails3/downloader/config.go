@@ -293,6 +293,22 @@ func ShouldBypassCookies(urlStr string, protocolType string) bool {
 	lowerURL := strings.ToLower(urlStr)
 	proto := strings.ToLower(strings.TrimSpace(protocolType))
 
+	if proto == "" || proto == "auto" {
+		if IsYTDLPURL(lowerURL) {
+			proto = "ytdlp"
+		} else if IsHLSURL(lowerURL) {
+			proto = "hls"
+		} else {
+			proto = "http"
+		}
+	} else if strings.HasPrefix(proto, "yt-dlp") || strings.HasPrefix(proto, "ytdlp") || proto == "video" {
+		proto = "ytdlp"
+	} else if proto == "hls" || proto == "m3u8" {
+		proto = "hls"
+	} else {
+		proto = "http"
+	}
+
 	cfg := GetEngineConfig()
 	rules := cfg.CookieBypassRules
 
@@ -300,6 +316,7 @@ func ShouldBypassCookies(urlStr string, protocolType string) bool {
 		if len(cfg.CookieBypassDomains) > 0 {
 			for _, d := range cfg.CookieBypassDomains {
 				cleanD := strings.TrimSpace(strings.ToLower(d))
+				cleanD = strings.TrimPrefix(cleanD, "*.")
 				if cleanD != "" && strings.Contains(lowerURL, cleanD) {
 					return true
 				}
@@ -311,19 +328,18 @@ func ShouldBypassCookies(urlStr string, protocolType string) bool {
 
 	for _, r := range rules {
 		cleanD := strings.TrimSpace(strings.ToLower(r.Domain))
+		cleanD = strings.TrimPrefix(cleanD, "*.")
 		if cleanD == "" {
 			continue
 		}
 		if strings.Contains(lowerURL, cleanD) {
 			switch proto {
-			case "http", "https", "direct":
-				return r.HTTP
-			case "ytdlp", "yt-dlp", "video":
+			case "ytdlp":
 				return r.YTDLP
-			case "hls", "m3u8":
+			case "hls":
 				return r.HLS
 			default:
-				return r.HTTP || r.YTDLP || r.HLS
+				return r.HTTP
 			}
 		}
 	}

@@ -202,7 +202,7 @@ func OpenDownloadConfirmationWindow(app *application.App, payload map[string]int
 	}
 	payload["windowId"] = wId
 
-	cfg := downloader.GetEngineConfig()
+	cfg := downloader.LoadEngineConfig()
 	if _, ok := payload["defaultThreadCount"]; !ok {
 		payload["defaultThreadCount"] = cfg.DefaultThreadCount
 	}
@@ -220,6 +220,21 @@ func OpenDownloadConfirmationWindow(app *application.App, payload map[string]int
 	}
 	if _, ok := payload["useCategory"]; !ok {
 		payload["useCategory"] = cfg.UseCategoryByDefault
+	}
+	if _, ok := payload["cookieBypassRules"]; !ok {
+		payload["cookieBypassRules"] = cfg.CookieBypassRules
+	}
+	if _, ok := payload["cookieBypassDomains"]; !ok {
+		payload["cookieBypassDomains"] = cfg.CookieBypassDomains
+	}
+	targetURL, _ := payload["url"].(string)
+	targetProto, _ := payload["protocol"].(string)
+	if targetURL != "" {
+		if _, ok := payload["useCookie"]; !ok {
+			isBypassed := downloader.ShouldBypassCookies(targetURL, targetProto)
+			payload["useCookie"] = !isBypassed
+			payload["isCookieBypassed"] = isBypassed
+		}
 	}
 
 	downloadConfirmationPayloadsMu.Lock()
@@ -262,6 +277,40 @@ func OpenDownloadConfirmationWindow(app *application.App, payload map[string]int
 func (c *WindowCommand) OpenDownloadConfirmationWindowCommand(data DownloadConfirmationPayload) error {
 	fmt.Printf("Opening Download Confirmation Window via Wails v3 with payload: %+v\n", data)
 	OpenDownloadConfirmationWindow(c.app, data.Payload)
+	return nil
+}
+
+type ConfirmationWindowSizePayload struct {
+	WindowID string `json:"windowId"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+}
+
+func (c *WindowCommand) SetDownloadConfirmationWindowSizeCommand(data ConfirmationWindowSizePayload) error {
+	if c.app != nil {
+		w := data.Width
+		h := data.Height
+		if w <= 0 {
+			w = 500
+		}
+		if h <= 0 {
+			h = 400
+		}
+		if data.WindowID != "" {
+			if win, ok := c.app.Window.Get("download-confirmation-" + data.WindowID); ok && win != nil {
+				win.SetSize(w, h)
+				return nil
+			}
+		}
+		if win, ok := c.app.Window.Get("download-confirmation"); ok && win != nil {
+			win.SetSize(w, h)
+			return nil
+		}
+		if current := c.app.Window.Current(); current != nil {
+			current.SetSize(w, h)
+			return nil
+		}
+	}
 	return nil
 }
 

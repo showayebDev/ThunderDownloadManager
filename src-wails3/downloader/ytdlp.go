@@ -41,8 +41,9 @@ type DownloadOptions struct {
 	OutputFile string
 	Quality    string // e.g. "1080p", "720p", "best", "audio" or "137"
 	MergeToMP4 bool
-	Cookies    string
-	ExtraArgs  []string
+	Cookies     string
+	ForceCookie bool
+	ExtraArgs   []string
 }
 
 // GetYTDLPExecutable finds yt-dlp binary in ~/.thunderdm/bin, app dir, bundle dir, or system PATH.
@@ -594,6 +595,7 @@ func (c *Client) GetVideoMetadata(urlStr string, cookies ...string) (*VideoMetad
 	if len(cookies) > 0 && cookies[0] != "" {
 		cookieVal = cookies[0]
 	}
+	forceCookie := len(cookies) > 1 && (cookies[1] == "true" || cookies[1] == "1")
 
 	execWithArgs := func(useCookie bool) (*VideoMetadata, error) {
 		args := []string{
@@ -604,7 +606,7 @@ func (c *Client) GetVideoMetadata(urlStr string, cookies ...string) (*VideoMetad
 		if ffmpegLoc := GetFFmpegLocation(); ffmpegLoc != "" {
 			args = append(args, "--ffmpeg-location", ffmpegLoc)
 		}
-		if useCookie && cookieVal != "" && !IsCookieBrokenHost(urlStr) {
+		if useCookie && cookieVal != "" && (forceCookie || !IsCookieBrokenHost(urlStr)) {
 			args = append(args, "--add-header", "Cookie: "+cookieVal)
 		}
 		if proxyStr := GetProxyManager().GetProxyStringForURL(urlStr); proxyStr != "" {
@@ -646,8 +648,8 @@ func (c *Client) GetVideoMetadata(urlStr string, cookies ...string) (*VideoMetad
 		return &metadata, nil
 	}
 
-	// 1. Try with cookies if provided and safe
-	if cookieVal != "" && !IsCookieBrokenHost(urlStr) {
+	// 1. Try with cookies if provided and safe (or forced)
+	if cookieVal != "" && (forceCookie || !IsCookieBrokenHost(urlStr)) {
 		meta, err := execWithArgs(true)
 		if err == nil && meta != nil {
 			return meta, nil
@@ -690,7 +692,7 @@ func (c *Client) Download(opts DownloadOptions, progressCallback func(line strin
 		args = append(args, "--ffmpeg-location", ffmpegLoc)
 	}
 
-	if opts.Cookies != "" && !IsCookieBrokenHost(opts.URL) {
+	if opts.Cookies != "" && (opts.ForceCookie || !IsCookieBrokenHost(opts.URL)) {
 		args = append(args, "--add-header", "Cookie: "+opts.Cookies)
 	}
 
@@ -781,6 +783,7 @@ type YTDLPTaskController struct {
 	userAgent          string
 	referer            string
 	cookies            string
+	forceCookie        bool
 	isPaused           bool
 	isCanceled         bool
 	speedVal           atomic.Int64
@@ -814,6 +817,7 @@ func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, file
 
 	var initDL, initTot int64
 	var userAgent, referer, cookies string
+	var forceCookie bool
 	showCompletion := true
 
 	for _, opt := range opts {
@@ -848,17 +852,21 @@ func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, file
 			if v.Cookies != "" {
 				cookies = v.Cookies
 			}
+			if v.ForceCookie {
+				forceCookie = true
+			}
 		}
 	}
 
 	tc := &YTDLPTaskController{
-		wailsCtx:  wailsCtx,
-		ctx:       ctx,
-		cancel:    cancel,
-		quality:   quality,
-		userAgent: userAgent,
-		referer:   referer,
-		cookies:   cookies,
+		wailsCtx:    wailsCtx,
+		ctx:         ctx,
+		cancel:      cancel,
+		quality:     quality,
+		userAgent:   userAgent,
+		referer:     referer,
+		cookies:     cookies,
+		forceCookie: forceCookie,
 		State: &TaskState{
 			ID:             id,
 			URL:            rawURL,
@@ -871,6 +879,7 @@ func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, file
 			UserAgent:      userAgent,
 			Referer:        referer,
 			Cookies:        cookies,
+			ForceCookie:    forceCookie,
 			ShowCompletion: showCompletion,
 		},
 	}
@@ -1076,7 +1085,7 @@ func (t *YTDLPTaskController) Start() {
 		args = append(args, "-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4")
 	}
 
-	if !IsCookieBrokenHost(t.State.URL) {
+	if t.forceCookie || !IsCookieBrokenHost(t.State.URL) {
 		if t.cookies != "" {
 			args = append(args, "--add-header", "Cookie: "+t.cookies)
 		} else if t.State.Cookies != "" {

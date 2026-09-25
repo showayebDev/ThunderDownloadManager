@@ -12,13 +12,14 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version" />
-  <img src="https://img.shields.io/badge/Wails-v3-DF0000?style=for-the-badge&logo=wails&logoColor=white" alt="Wails v3" />
-  <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19" />
-  <img src="https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS v4" />
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-555555?style=for-the-badge" alt="Platforms" />
-  <a href="https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe"><img src="https://img.shields.io/badge/Chrome_Web_Store-Official_Extension-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome Web Store" /></a>
-  <a href="https://addons.mozilla.org/en-US/firefox/addon/thunder-download-manager/"><img src="https://img.shields.io/badge/Firefox_Add--on-Official_Extension-FF7139?style=for-the-badge&logo=firefox-browser&logoColor=white" alt="Firefox Add-on" /></a>
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go Version" />
+  <img src="https://img.shields.io/badge/Wails-v3-DF0000?logo=wails&logoColor=white" alt="Wails v3" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19" />
+  <img src="https://img.shields.io/badge/TailwindCSS-v4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS v4" />
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-555555" alt="Platforms" />
+  </br>
+  <a href="https://chromewebstore.google.com/detail/thunder-download-manager/inhdofocnelidaaldldkpoljakofkbpe"><img src="https://img.shields.io/badge/Chrome_Web_Store-Official_Extension-4285F4?logo=googlechrome&logoColor=white" alt="Chrome Web Store" /></a>
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/thunder-download-manager/"><img src="https://img.shields.io/badge/Firefox_Add--on-Official_Extension-FF7139?logo=firefox-browser&logoColor=white" alt="Firefox Add-on" /></a>
 </p>
 
 ---
@@ -78,10 +79,6 @@ It features a custom high-performance multi-segment download engine that dynamic
 
 - **9 Handcrafted Theme Palettes:** Choose between _Zinc (Monochrome), OLED (Pure Black), Midnight (Deep Navy), Violet, Emerald, Rose, Amber, Cyan, and Classic Blue_.
 - **Custom Typography & Sizing:** Select any installed system font with live rendering preview, adjust base font size (9px – 18px), and toggle compact top bar and icon labels.
-
-### 🌍 Multi-Language Interface (i18n)
-
-- Comprehensive internationalization supporting **English, বাংলা (Bengali), Español (Spanish), Français (French), and Deutsch (German)** with instantaneous language switching.
 
 ### 💾 Pure SQLite Relational Database Engine
 

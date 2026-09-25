@@ -36,6 +36,7 @@ type TaskCheckpoint struct {
 	UserAgent        string            `json:"user_agent,omitempty"`
 	Referer          string            `json:"referer,omitempty"`
 	Cookies          string            `json:"cookies,omitempty"`
+	ForceCookie      bool              `json:"force_cookie,omitempty"`
 	Chunks           []ChunkCheckpoint `json:"chunks"`
 	UpdatedAt        int64             `json:"updated_at"`
 }
@@ -69,6 +70,7 @@ func NewTaskController(wailsCtx context.Context, id, url, savePath, filename str
 	var limitBytes int64 = 0
 	var checksumStr string
 	var authUser, authPass, userAgent, referer, cookies string
+	var forceCookie bool
 	showCompletion := true
 
 	var protoStr string = "Auto"
@@ -107,6 +109,9 @@ func NewTaskController(wailsCtx context.Context, id, url, savePath, filename str
 			}
 			if v.Cookies != "" {
 				cookies = v.Cookies
+			}
+			if v.ForceCookie {
+				forceCookie = true
 			}
 		case string:
 			if v != "" && checksumStr == "" {
@@ -188,6 +193,7 @@ func NewTaskController(wailsCtx context.Context, id, url, savePath, filename str
 			UserAgent:        userAgent,
 			Referer:          referer,
 			Cookies:          cookies,
+			ForceCookie:      forceCookie,
 			Status:           StatusPending,
 			ShowCompletion:   showCompletion,
 			Protocol:         protoStr,
@@ -468,7 +474,7 @@ func (tc *TaskController) preCheck() error {
 		if tc.State.Referer != "" {
 			r.Header.Set("Referer", tc.State.Referer)
 		}
-		if tc.State.Cookies != "" && !ShouldBypassCookies(tc.State.URL, "http") {
+		if tc.State.Cookies != "" && (tc.State.ForceCookie || !ShouldBypassCookies(tc.State.URL, "http")) {
 			r.Header.Set("Cookie", tc.State.Cookies)
 		}
 	}
@@ -887,10 +893,14 @@ func (tc *TaskController) orchestratorLoop() {
 						tc.cancelsMu.Unlock()
 						tc.workers.Done()
 					}()
+					fcStr := "false"
+					if tc.State.ForceCookie {
+						fcStr = "true"
+					}
 					startCur := chk.GetCurrentByte()
 					err := DownloadChunk(wCtx, tc.State.URL, chk, tc.targetFile, SharedHTTPClient, tc.limiter, func(c0 *ChunkState) {
 						tc.FallbackToSingleStream(c0)
-					}, tc.State.AuthUsername, tc.State.AuthPassword, tc.State.UserAgent, tc.State.Referer, tc.State.Cookies)
+					}, tc.State.AuthUsername, tc.State.AuthPassword, tc.State.UserAgent, tc.State.Referer, tc.State.Cookies, fcStr)
 					if chk.GetCurrentByte() > startCur+64*1024 {
 						chk.ResetRetryCount()
 					}

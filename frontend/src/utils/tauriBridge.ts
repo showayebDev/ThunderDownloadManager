@@ -114,6 +114,27 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         return (await WindowCommand.Minimize()) as T;
       case 'close_window':
         return (await WindowCommand.Close()) as T;
+      case 'set_download_confirmation_window_size_command':
+      case 'resize_download_confirmation_window_command': {
+        const width = args?.width || 500;
+        const height = args?.height || 400;
+        try {
+          await Window.SetSize(width, height);
+        } catch {}
+        try {
+          const winCmdAny = WindowCommand as any;
+          if (winCmdAny && typeof winCmdAny['SetDownloadConfirmationWindowSizeCommand'] === 'function') {
+            return (await winCmdAny['SetDownloadConfirmationWindowSizeCommand'](args)) as T;
+          }
+        } catch {}
+        try {
+          return (await (Call as any).ByName('ThunderDM/src-wails3/commands.WindowCommand.SetDownloadConfirmationWindowSizeCommand', args)) as T;
+        } catch {}
+        try {
+          return (await (Call as any).ByName('main.WindowCommand.SetDownloadConfirmationWindowSizeCommand', args)) as T;
+        } catch {}
+        return undefined as T;
+      }
 
       // File / Storage commands (Pure SQLite Backend)
       case 'save_thunderdb_file_command':
@@ -207,6 +228,10 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         if (args?.queue) {
           proto = `${proto || 'Auto'}::queue=${encodeURIComponent(args.queue)}`;
         }
+        const forceCookie = args?.forceCookie ?? args?.force_cookie;
+        if (forceCookie === true) {
+          proto = `${proto || 'Auto'}::force_cookie=true`;
+        }
         const showComp = args?.showCompletionWindow ?? args?.show_completion ?? args?.showCompletion;
         if (showComp === false) {
           proto = `${proto || 'Auto'}::show_completion=false`;
@@ -250,6 +275,10 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         }
         if (args?.queue) {
           proto = `${proto || 'Auto'}::queue=${encodeURIComponent(args.queue)}`;
+        }
+        const forceCookie = args?.forceCookie ?? args?.force_cookie;
+        if (forceCookie === true) {
+          proto = `${proto || 'Auto'}::force_cookie=true`;
         }
         const showComp = args?.showCompletionWindow ?? args?.show_completion ?? args?.showCompletion;
         if (showComp === false) {
@@ -309,6 +338,7 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         const ua = args?.userAgent || args?.user_agent || '';
         const ref = args?.referer || args?.referrer || '';
         const cookie = args?.cookies || args?.cookie || '';
+        const forceCookie = args?.forceCookie ?? args?.force_cookie;
         if (proto) {
           targetUrl = `${targetUrl}::proto=${encodeURIComponent(proto)}`;
         }
@@ -323,6 +353,9 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         }
         if (cookie) {
           targetUrl = `${targetUrl}::cookie=${encodeURIComponent(cookie)}`;
+        }
+        if (forceCookie === true) {
+          targetUrl = `${targetUrl}::force_cookie=true`;
         }
         return (await DownloadCommand.FetchFileInfo(targetUrl)) as T;
       }
@@ -515,6 +548,14 @@ export async function listen<T = any>(event: string, callback: (event: { payload
 // Window control actions
 export async function WindowMinimise() {
   await Window.Minimise();
+}
+
+export async function WindowSetSize(width: number, height: number): Promise<void> {
+  try {
+    await Window.SetSize(width, height);
+  } catch (err) {
+    console.warn('Failed to set window size:', err);
+  }
 }
 
 export async function WindowToggleMaximise() {

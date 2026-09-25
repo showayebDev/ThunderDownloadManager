@@ -155,6 +155,7 @@ type TaskState struct {
 	UserAgent         string
 	Referer           string
 	Cookies           string
+	ForceCookie       bool
 	Status            DownloadStatus
 	ErrorMessage      string
 	RetryCount        int
