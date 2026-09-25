@@ -19,12 +19,14 @@ import {
   AlertTriangle,
   Ban,
   Magnet,
+  Cookie,
 } from 'lucide-react';
 import { useDownloadContext } from '../../context/DownloadContext';
-import { WindowMinimise, Quit, invoke, listen } from '../../utils/tauriBridge';
+import { CookieBypassRule } from '../../types/download';
+import { WindowMinimise, WindowSetSize, Quit, invoke, listen } from '../../utils/tauriBridge';
 import { loadFromThunderDB, saveToThunderDB } from '../../utils/thunderDB';
 import { detectCategory as utilDetectCategory } from '../../utils/category';
-import { Events } from '@wailsio/runtime';
+import { Events, Window } from '@wailsio/runtime';
 import { Tooltip, HelpTooltip } from '../common/Tooltip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,6 +109,96 @@ export const matchVaultCredentials = (
     }
   } catch {}
   return null;
+};
+
+export const DEFAULT_COOKIE_BYPASS_RULES: CookieBypassRule[] = [
+  { domain: 'instagram.com', http: true, ytdlp: true, hls: true },
+  { domain: 'tiktok.com', http: true, ytdlp: true, hls: true },
+  { domain: 'facebook.com', http: true, ytdlp: true, hls: true },
+  { domain: 'threads.net', http: true, ytdlp: true, hls: true },
+  { domain: 'fb.watch', http: true, ytdlp: true, hls: true },
+  { domain: 'fb.com', http: true, ytdlp: true, hls: true },
+  { domain: 'youtube.com', http: false, ytdlp: true, hls: false },
+];
+
+export const normalizeProtocolCategory = (
+  rawProto: string,
+  targetUrl: string
+): 'http' | 'ytdlp' | 'hls' => {
+  const p = (rawProto || '').trim().toLowerCase();
+  const u = (targetUrl || '').trim().toLowerCase();
+
+  if (p.startsWith('yt-dlp') || p.startsWith('ytdlp') || p === 'video') {
+    return 'ytdlp';
+  }
+  if (p === 'hls' || p === 'm3u8' || u.includes('.m3u8')) {
+    return 'hls';
+  }
+  if (p === 'auto') {
+    if (
+      u.includes('youtube.com') ||
+      u.includes('youtu.be') ||
+      u.includes('vimeo.com') ||
+      u.includes('tiktok.com') ||
+      u.includes('instagram.com') ||
+      u.includes('threads.net') ||
+      u.includes('facebook.com') ||
+      u.includes('fb.watch') ||
+      u.includes('fb.com') ||
+      u.includes('twitter.com') ||
+      u.includes('x.com')
+    ) {
+      return 'ytdlp';
+    }
+    if (u.includes('.m3u8')) {
+      return 'hls';
+    }
+    return 'http';
+  }
+  return 'http';
+};
+
+export const findMatchedCookieBypassRule = (
+  targetUrl: string,
+  rules: CookieBypassRule[] = []
+): CookieBypassRule | null => {
+  if (!targetUrl || !rules || !rules.length) return null;
+  const lowerUrl = targetUrl.toLowerCase();
+  let hostname = '';
+  try {
+    if (lowerUrl.includes('://')) {
+      hostname = new URL(lowerUrl).hostname;
+    }
+  } catch {}
+  for (const r of rules) {
+    const cleanD = (r.domain || '').trim().toLowerCase().replace(/^\*\./, '');
+    if (!cleanD) continue;
+    if (
+      (hostname && (hostname === cleanD || hostname.endsWith('.' + cleanD))) ||
+      lowerUrl.includes(cleanD)
+    ) {
+      return r;
+    }
+  }
+  return null;
+};
+
+export const isCookieBypassedByDatabase = (
+  targetUrl: string,
+  protocol: string,
+  rules: CookieBypassRule[] = []
+): { isBypassed: boolean; matchedRule: CookieBypassRule | null; effectiveProtocol: 'http' | 'ytdlp' | 'hls' } => {
+  const effectiveProto = normalizeProtocolCategory(protocol, targetUrl);
+  const matchedRule = findMatchedCookieBypassRule(targetUrl, rules);
+  if (!matchedRule) {
+    return { isBypassed: false, matchedRule: null, effectiveProtocol: effectiveProto };
+  }
+  let isBypassed = false;
+  if (effectiveProto === 'http') isBypassed = Boolean(matchedRule.http);
+  else if (effectiveProto === 'ytdlp') isBypassed = Boolean(matchedRule.ytdlp);
+  else if (effectiveProto === 'hls') isBypassed = Boolean(matchedRule.hls);
+
+  return { isBypassed, matchedRule, effectiveProtocol: effectiveProto };
 };
 
 export const DownloadStartConfirmation: React.FC = () => {
@@ -192,6 +284,10 @@ export const DownloadStartConfirmation: React.FC = () => {
   const [showQueuePicker, setShowQueuePicker] = useState<boolean>(false);
   const [queueCounts, setQueueCounts] = useState<{ [key: string]: number }>({});
 
+  const userManuallyToggledCookieRef = useRef<boolean>(false);
+  const lastEvaluatedDomainRef = useRef<string>('');
+  const lastEvaluatedCookieRef = useRef<boolean | null>(null);
+
   useEffect(() => {
     async function loadEngineData() {
       try {
@@ -221,6 +317,28 @@ export const DownloadStartConfirmation: React.FC = () => {
             ? engine.categoryPaths
             : {};
         setCategoryPaths(savedCategoryPaths);
+        let loadedRules: CookieBypassRule[] = [];
+        if (Array.isArray(engine?.cookieBypassRules) && engine.cookieBypassRules.length > 0) {
+          loadedRules = engine.cookieBypassRules;
+          setCookieBypassRules(engine.cookieBypassRules);
+        } else if (Array.isArray(engine?.cookieBypassDomains) && engine.cookieBypassDomains.length > 0) {
+          loadedRules = engine.cookieBypassDomains.map((d: string) => ({
+            domain: d,
+            http: true,
+            ytdlp: true,
+            hls: true,
+          }));
+          setCookieBypassRules(loadedRules);
+        }
+        if (url && loadedRules.length > 0 && !userManuallyToggledCookieRef.current) {
+          const { isBypassed } = isCookieBypassedByDatabase(url, protocol, loadedRules);
+          const computedUseCookie = !isBypassed;
+          if (lastEvaluatedCookieRef.current !== computedUseCookie) {
+            lastEvaluatedCookieRef.current = computedUseCookie;
+            setUseCookie(computedUseCookie);
+            handleRefreshInfo(url.trim(), { useCookie: computedUseCookie }, true);
+          }
+        }
         if (engine && engine.downloadPath) {
           const basePathVal = engine.downloadPath;
           setDefaultBasePath(basePathVal);
@@ -373,6 +491,89 @@ export const DownloadStartConfirmation: React.FC = () => {
   const [availableFormats, setAvailableFormats] = useState<YtdlpFormat[]>([]);
   const [isYtdlpInstalled, setIsYtdlpInstalled] = useState<boolean>(true);
 
+  // Cookie bypass rules from database / settings
+  const [cookieBypassRules, setCookieBypassRules] = useState<CookieBypassRule[]>(() => {
+    if (Array.isArray(extensionPayload?.cookieBypassRules) && extensionPayload.cookieBypassRules.length > 0) {
+      return extensionPayload.cookieBypassRules;
+    }
+    if (Array.isArray(globalSettings?.cookieBypassRules) && globalSettings.cookieBypassRules.length > 0) {
+      return globalSettings.cookieBypassRules;
+    }
+    return DEFAULT_COOKIE_BYPASS_RULES;
+  });
+
+  const { isBypassed: isBypassedByRule, matchedRule: matchedCookieRule } = isCookieBypassedByDatabase(
+    url,
+    protocol,
+    cookieBypassRules
+  );
+
+  const [useCookie, setUseCookie] = useState<boolean>(() => {
+    if (extensionPayload?.useCookie !== undefined) {
+      return Boolean(extensionPayload.useCookie);
+    }
+    const initialRules =
+      extensionPayload?.cookieBypassRules ||
+      globalSettings?.cookieBypassRules ||
+      DEFAULT_COOKIE_BYPASS_RULES;
+    const { isBypassed } = isCookieBypassedByDatabase(
+      initialUrl,
+      extensionPayload?.protocol || 'Auto',
+      initialRules
+    );
+    return !isBypassed;
+  });
+
+  useEffect(() => {
+    let currentDomain = '';
+    try {
+      if (url && url.includes('://')) {
+        currentDomain = new URL(url).hostname.toLowerCase();
+      } else if (url) {
+        currentDomain = url.toLowerCase();
+      }
+    } catch {}
+
+    if (currentDomain && currentDomain !== lastEvaluatedDomainRef.current) {
+      lastEvaluatedDomainRef.current = currentDomain;
+      userManuallyToggledCookieRef.current = false;
+      lastEvaluatedCookieRef.current = null;
+    }
+
+    if (!userManuallyToggledCookieRef.current && url.trim()) {
+      const { isBypassed } = isCookieBypassedByDatabase(url, protocol, cookieBypassRules);
+      const newUseCookie = !isBypassed;
+      if (lastEvaluatedCookieRef.current !== newUseCookie) {
+        lastEvaluatedCookieRef.current = newUseCookie;
+        setUseCookie(newUseCookie);
+        handleRefreshInfo(url.trim(), { useCookie: newUseCookie }, true);
+      }
+    }
+  }, [url, protocol, cookieBypassRules]);
+
+  // Dynamically increase window height when error/status message is shown
+  useEffect(() => {
+    const hasError = Boolean(errorMessage && url.trim() && !isFetchingInfo);
+    const targetHeight = hasError ? 470 : 400;
+    const currentWindowId = getInitialWindowId();
+
+    try {
+      Window.SetSize(500, targetHeight);
+    } catch {}
+
+    try {
+      WindowSetSize(500, targetHeight);
+    } catch {}
+
+    try {
+      invoke('set_download_confirmation_window_size_command', {
+        windowId: currentWindowId,
+        width: 500,
+        height: targetHeight,
+      });
+    } catch {}
+  }, [errorMessage, url, isFetchingInfo]);
+
   const lastFetchedKeyRef = useRef<string>('');
   const inFlightFetchRef = useRef<boolean>(false);
   const metadataCacheRef = useRef<{ [key: string]: any }>({});
@@ -465,29 +666,60 @@ export const DownloadStartConfirmation: React.FC = () => {
             setThreadCount(payload.thread_count);
           }
 
+          let effectiveRules = cookieBypassRules;
+          if (Array.isArray(payload.cookieBypassRules) && payload.cookieBypassRules.length > 0) {
+            effectiveRules = payload.cookieBypassRules;
+            setCookieBypassRules(payload.cookieBypassRules);
+          } else if (Array.isArray(payload.cookieBypassDomains) && payload.cookieBypassDomains.length > 0) {
+            effectiveRules = payload.cookieBypassDomains.map((d: string) => ({
+              domain: d,
+              http: true,
+              ytdlp: true,
+              hls: true,
+            }));
+            setCookieBypassRules(effectiveRules);
+          }
+
+          let payloadProtocol = protocol;
           if (payload.protocol) {
             if (
               payload.protocol.startsWith('Yt-DLP') ||
               payload.protocol.startsWith('YT-DLP')
             ) {
+              payloadProtocol = 'Yt-DLP';
               setProtocol('Yt-DLP');
               if (payload.protocol.includes(':')) {
                 setYtdlpQuality(payload.protocol.split(':')[1] || 'best');
               }
             } else {
+              payloadProtocol = payload.protocol;
               setProtocol(payload.protocol);
             }
           }
+
+          let effectiveCookieUsage = true;
+          if (payload.useCookie !== undefined) {
+            effectiveCookieUsage = Boolean(payload.useCookie);
+          } else if (payload.url) {
+            const { isBypassed } = isCookieBypassedByDatabase(payload.url, payloadProtocol, effectiveRules);
+            effectiveCookieUsage = !isBypassed;
+          }
+          userManuallyToggledCookieRef.current = false;
+          lastEvaluatedCookieRef.current = effectiveCookieUsage;
+          setUseCookie(effectiveCookieUsage);
+
           if (payload.url) {
             setUrl(payload.url);
             handleRefreshInfo(
               payload.url,
               {
+                protocol: payloadProtocol,
                 cookies: incomingCookies,
                 userAgent: incomingUA,
                 referer: incomingRef,
                 username: incomingUser,
                 password: incomingPass,
+                useCookie: effectiveCookieUsage,
               },
               true
             );
@@ -801,12 +1033,15 @@ export const DownloadStartConfirmation: React.FC = () => {
         const effectivePass = customAuth.password || password;
 
         const timer = setTimeout(() => {
+          const { isBypassed } = isCookieBypassedByDatabase(url, protocol, cookieBypassRules);
+          const effectiveCookieUsage = userManuallyToggledCookieRef.current ? useCookie : !isBypassed;
           handleRefreshInfo(url.trim(), {
             username: effectiveUser,
             password: effectivePass,
             userAgent: effectiveUa,
             cookies,
             referer: refererPage,
+            useCookie: effectiveCookieUsage,
           });
         }, 300);
         return () => clearTimeout(timer);
@@ -832,6 +1067,9 @@ export const DownloadStartConfirmation: React.FC = () => {
     vaultList,
     cookies,
     categoryPaths,
+    useCookie,
+    protocol,
+    cookieBypassRules,
   ]);
 
   useEffect(() => {
@@ -843,10 +1081,11 @@ export const DownloadStartConfirmation: React.FC = () => {
         userAgent,
         referer: refererPage,
         cookies,
+        useCookie,
       });
     }, 500);
     return () => clearTimeout(timer);
-  }, [username, password, userAgent, refererPage, cookies]);
+  }, [username, password, userAgent, refererPage, cookies, useCookie]);
 
   const handleCategoryChange = async (cat: string) => {
     setCategory(cat);
@@ -981,12 +1220,15 @@ export const DownloadStartConfirmation: React.FC = () => {
     }
 
     const ref = customOpts.referer !== undefined ? customOpts.referer : refererPage;
-    const ck = customOpts.cookies !== undefined ? customOpts.cookies : cookies;
+    const effectiveUseCookie = customOpts.useCookie !== undefined ? customOpts.useCookie : useCookie;
+    const rawCk = customOpts.cookies !== undefined ? customOpts.cookies : cookies;
+    const ck = effectiveUseCookie ? rawCk : '';
+    const forceCk = effectiveUseCookie;
 
     const protoToFetch = customOpts.protocol !== undefined ? customOpts.protocol : protocol;
     const fetchKey = `${activeUrl.trim()}|${protoToFetch || ''}|${u || ''}|${p || ''}|${ua || ''}|${ref || ''}|${
       ck || ''
-    }`;
+    }|${effectiveUseCookie ? 'useCookie' : 'noCookie'}`;
     if (!force && (fetchKey === lastFetchedKeyRef.current || inFlightFetchRef.current)) {
       if (metadataCacheRef.current[fetchKey]) {
         const cached = metadataCacheRef.current[fetchKey];
@@ -1015,6 +1257,8 @@ export const DownloadStartConfirmation: React.FC = () => {
           userAgent: ua ? ua.trim() : undefined,
           referer: ref ? ref.trim() : undefined,
           cookies: ck ? ck.trim() : undefined,
+          forceCookie: forceCk,
+          force_cookie: forceCk,
         });
       } catch (err: any) {
         lastErr = err;
@@ -1079,7 +1323,13 @@ export const DownloadStartConfirmation: React.FC = () => {
       } else {
         setFileSizeText('Unknown');
         setFileFetched(false);
-        setErrorMessage('Could not retrieve file information from the server.');
+        if (!effectiveUseCookie) {
+          setErrorMessage(
+            'Could not retrieve file information from the server. Cookies are disabled for this site. Enable "Use Cookie" if this is a private resource.'
+          );
+        } else {
+          setErrorMessage('Could not retrieve file information from the server.');
+        }
       }
     } catch (err: any) {
       const msg = typeof err === 'string' ? err : err?.message || 'Error fetching info';
@@ -1089,12 +1339,27 @@ export const DownloadStartConfirmation: React.FC = () => {
         setErrorMessage(
           'Authentication Required (401): Please check your credentials in Site Credentials Vault or Extra Config (⚙️).'
         );
+      } else if (
+        !effectiveUseCookie &&
+        (msg.includes('404') || msg.includes('403') || msg.toLowerCase().includes('not found'))
+      ) {
+        setErrorMessage(
+          `Server Error: ${msg}. Cookies are disabled for this site. Enable "Use Cookie" if this is a private resource.`
+        );
       } else {
         setErrorMessage(`Server Error: ${msg}`);
       }
     } finally {
       inFlightFetchRef.current = false;
       setIsFetchingInfo(false);
+    }
+  };
+
+  const handleToggleUseCookie = (checked: boolean) => {
+    userManuallyToggledCookieRef.current = true;
+    setUseCookie(checked);
+    if (url.trim()) {
+      handleRefreshInfo(url.trim(), { useCookie: checked }, true);
     }
   };
 
@@ -1183,10 +1448,14 @@ export const DownloadStartConfirmation: React.FC = () => {
     } catch {}
 
     const taskId = Date.now().toString();
+    const effectiveCookies = useCookie && cookies && cookies.trim() ? cookies.trim() : undefined;
     let effectiveProtocol =
       protocol === 'Yt-DLP' ? `Yt-DLP:${ytdlpQuality}` : protocol || 'Auto';
-    if (cookies && cookies.trim()) {
-      effectiveProtocol += `::cookie=${encodeURIComponent(cookies.trim())}`;
+    if (effectiveCookies) {
+      effectiveProtocol += `::cookie=${encodeURIComponent(effectiveCookies)}`;
+    }
+    if (useCookie) {
+      effectiveProtocol += `::force_cookie=true`;
     }
     const rawChecksum = (checksumVal || '').trim();
     const givenCheckSum =
@@ -1286,7 +1555,10 @@ export const DownloadStartConfirmation: React.FC = () => {
       password: password.trim() || matchedVault?.pass || undefined,
       userAgent: userAgent.trim() || matchedVault?.userAgent || undefined,
       referer: refererPage.trim() || undefined,
-      cookies: cookies.trim() || undefined,
+      cookies: effectiveCookies,
+      forceCookie: useCookie,
+      force_cookie: useCookie,
+      protocol: effectiveProtocol,
       chunks: [],
     };
 
@@ -1364,7 +1636,9 @@ export const DownloadStartConfirmation: React.FC = () => {
           password: password.trim() || matchedVault?.pass || undefined,
           userAgent: userAgent.trim() || matchedVault?.userAgent || undefined,
           referer: refererPage.trim() || undefined,
-          cookies: cookies.trim() || undefined,
+          cookies: effectiveCookies,
+          forceCookie: useCookie,
+          force_cookie: useCookie,
         });
       } catch {
         if (addDownload) {
@@ -1378,7 +1652,9 @@ export const DownloadStartConfirmation: React.FC = () => {
             password: password.trim() || undefined,
             userAgent: userAgent.trim() || undefined,
             referer: refererPage.trim() || undefined,
-            cookies: cookies.trim() || undefined,
+            cookies: effectiveCookies,
+            forceCookie: useCookie,
+            force_cookie: useCookie,
           });
         }
       }
@@ -1477,10 +1753,14 @@ export const DownloadStartConfirmation: React.FC = () => {
     } catch {}
 
     const taskId = Date.now().toString();
+    const effectiveCookies = useCookie && cookies && cookies.trim() ? cookies.trim() : undefined;
     let effectiveProtocol =
       protocol === 'Yt-DLP' ? `Yt-DLP:${ytdlpQuality}` : protocol || 'Auto';
-    if (cookies && cookies.trim()) {
-      effectiveProtocol += `::cookie=${encodeURIComponent(cookies.trim())}`;
+    if (effectiveCookies) {
+      effectiveProtocol += `::cookie=${encodeURIComponent(effectiveCookies)}`;
+    }
+    if (useCookie) {
+      effectiveProtocol += `::force_cookie=true`;
     }
     const rawChecksum = (checksumVal || '').trim();
     const givenCheckSum =
@@ -1507,11 +1787,14 @@ export const DownloadStartConfirmation: React.FC = () => {
         matchedVault?.threadCount ||
         (threadCount > 0 ? threadCount : defaultThreadCount || globalSettings?.defaultThreadCount || 8),
       speedLimit: calculatedLimit,
+      protocol: effectiveProtocol,
       username: username.trim() || undefined,
       password: password.trim() || undefined,
       userAgent: userAgent.trim() || undefined,
       referer: refererPage.trim() || undefined,
-      cookies: cookies.trim() || undefined,
+      cookies: effectiveCookies,
+      forceCookie: useCookie,
+      force_cookie: useCookie,
       chunks: [],
     };
 
@@ -1786,6 +2069,55 @@ export const DownloadStartConfirmation: React.FC = () => {
               )}
             </div>
 
+            {/* Cookie Filter Option Row */}
+            <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-muted/30 border border-border/70 min-w-0">
+              <div className="flex items-center space-x-2 shrink-0">
+                <Checkbox
+                  id="use-cookie-confirmation"
+                  checked={useCookie}
+                  onCheckedChange={(c) => handleToggleUseCookie(Boolean(c))}
+                />
+                <Label
+                  htmlFor="use-cookie-confirmation"
+                  className="text-foreground font-medium text-[11.5px] whitespace-nowrap cursor-pointer flex items-center space-x-1.5"
+                >
+                  <Cookie className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span>Use Cookie</span>
+                </Label>
+              </div>
+
+              {/* Database cookie rule indicator / website details */}
+              <div className="flex items-center min-w-0 justify-end overflow-hidden">
+                {matchedCookieRule ? (
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-medium truncate max-w-full ${
+                      isBypassedByRule
+                        ? useCookie
+                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                          : 'bg-muted/80 text-muted-foreground border-border'
+                        : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                    }`}
+                    title={`Rule for ${matchedCookieRule.domain} (HTTP: ${matchedCookieRule.http ? 'Bypassed' : 'Active'}, Yt-DLP: ${matchedCookieRule.ytdlp ? 'Bypassed' : 'Active'}, HLS: ${matchedCookieRule.hls ? 'Bypassed' : 'Active'})`}
+                  >
+                    <span className="font-semibold text-foreground/80">{matchedCookieRule.domain}:</span>
+                    {isBypassedByRule ? (
+                      useCookie ? (
+                        <span className="text-amber-500 font-medium">Bypassed in DB (Overridden)</span>
+                      ) : (
+                        <span>Bypassed by DB Rule</span>
+                      )
+                    ) : (
+                      <span>Allowed in DB</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground text-[10px] px-1.5 py-0.5 rounded bg-muted/20 border border-border/40 truncate">
+                    No bypass rule (Allowed)
+                  </span>
+                )}
+              </div>
+            </div>
+
             {/* Row 3: Save Path & Actions */}
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex-1 relative flex items-center min-w-0">
@@ -1908,7 +2240,7 @@ export const DownloadStartConfirmation: React.FC = () => {
 
           {/* Error Message Display */}
           {errorMessage && url.trim() && !isFetchingInfo && (
-            <div className="text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-2 text-[11px] font-medium animate-in fade-in duration-200 mt-2 min-w-0 break-all break-words [overflow-wrap:anywhere] max-h-24 overflow-y-auto custom-scrollbar select-text">
+            <div className="text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 text-xs font-medium animate-in fade-in duration-200 mt-2 min-w-0 shrink-0 break-all break-words [overflow-wrap:anywhere] select-text h-auto leading-relaxed">
               {errorMessage}
             </div>
           )}
@@ -2182,6 +2514,50 @@ export const DownloadStartConfirmation: React.FC = () => {
                     onChange={(e) => setRefererPage(e.target.value)}
                     className="w-full bg-background font-mono text-[10px] h-7"
                   />
+                </div>
+
+                {/* Cookie Configuration & Database Filtering */}
+                <div className="space-y-1.5 pt-1 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-foreground font-medium text-[11px] flex items-center space-x-1">
+                      <Cookie className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Cookie Filtering</span>
+                      <HelpTooltip description="Toggle cookies or view bypass rules configured in Settings." badge position="left" />
+                    </Label>
+                    <Checkbox
+                      checked={useCookie}
+                      onCheckedChange={(c) => handleToggleUseCookie(Boolean(c))}
+                    />
+                  </div>
+                  {matchedCookieRule && (
+                    <div className="bg-muted/30 border border-border/60 rounded-lg p-2 text-[10px] space-y-1 text-muted-foreground">
+                      <div className="font-semibold text-foreground flex items-center justify-between">
+                        <span>Database Rule:</span>
+                        <span className="font-mono text-primary">{matchedCookieRule.domain}</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 pt-0.5 text-center font-mono text-[9.5px]">
+                        <div className={`px-1 py-0.5 rounded ${matchedCookieRule.http ? 'bg-destructive/15 text-destructive' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                          HTTP: {matchedCookieRule.http ? 'Bypass' : 'Allow'}
+                        </div>
+                        <div className={`px-1 py-0.5 rounded ${matchedCookieRule.ytdlp ? 'bg-destructive/15 text-destructive' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                          YT-DLP: {matchedCookieRule.ytdlp ? 'Bypass' : 'Allow'}
+                        </div>
+                        <div className={`px-1 py-0.5 rounded ${matchedCookieRule.hls ? 'bg-destructive/15 text-destructive' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                          HLS: {matchedCookieRule.hls ? 'Bypass' : 'Allow'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <Label className="text-muted-foreground text-[10px]">Raw Cookie Header</Label>
+                    <Input
+                      type="text"
+                      placeholder="key=value; session_id=..."
+                      value={cookies}
+                      onChange={(e) => setCookies(e.target.value)}
+                      className="w-full bg-background font-mono text-[10px] h-7"
+                    />
+                  </div>
                 </div>
 
                 {/* Authentication */}

@@ -84,6 +84,7 @@ func NewHLSTaskController(wailsCtx context.Context, id, rawURL, savePath, filena
 	var spLimit *int64
 	var limitBytes int64 = 0
 	var authUser, authPass, userAgent, referer, cookies string
+	var forceCookie bool
 	showCompletion := true
 
 	for _, opt := range opts {
@@ -114,6 +115,9 @@ func NewHLSTaskController(wailsCtx context.Context, id, rawURL, savePath, filena
 			}
 			if v.Cookies != "" {
 				cookies = v.Cookies
+			}
+			if v.ForceCookie {
+				forceCookie = true
 			}
 		}
 	}
@@ -180,6 +184,7 @@ func NewHLSTaskController(wailsCtx context.Context, id, rawURL, savePath, filena
 			UserAgent:    userAgent,
 			Referer:      referer,
 			Cookies:      cookies,
+			ForceCookie:  forceCookie,
 			Status:       StatusPending,
 			IsHLS:        true,
 			Protocol:     "HLS",
@@ -219,7 +224,11 @@ func (tc *HLSTaskController) preCheck() error {
 	ctxProbe, cancelProbe := context.WithTimeout(tc.ctx, 25*time.Second)
 	defer cancelProbe()
 
-	playlist, err := FetchAndParseHLS(ctxProbe, SharedHTTPClient, tc.State.URL, tc.State.AuthUsername, tc.State.AuthPassword, tc.State.UserAgent, tc.State.Referer, tc.State.Cookies)
+	fcStr := "false"
+	if tc.State.ForceCookie {
+		fcStr = "true"
+	}
+	playlist, err := FetchAndParseHLS(ctxProbe, SharedHTTPClient, tc.State.URL, tc.State.AuthUsername, tc.State.AuthPassword, tc.State.UserAgent, tc.State.Referer, tc.State.Cookies, fcStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse HLS manifest: %w", err)
 	}
@@ -422,7 +431,7 @@ func (tc *HLSTaskController) downloadSegment(segState *HLSSegmentState) {
 		if tc.State.Referer != "" {
 			req.Header.Set("Referer", tc.State.Referer)
 		}
-		if tc.State.Cookies != "" && !ShouldBypassCookies(tc.State.URL, "hls") {
+		if tc.State.Cookies != "" && (tc.State.ForceCookie || !ShouldBypassCookies(tc.State.URL, "hls")) {
 			req.Header.Set("Cookie", tc.State.Cookies)
 		}
 

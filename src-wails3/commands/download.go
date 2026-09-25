@@ -645,7 +645,11 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 		if opts.Referer != "" {
 			r.Header.Set("Referer", opts.Referer)
 		}
-		if opts.Cookies != "" && !downloader.ShouldBypassCookies(cleanURL, "http") {
+		effectiveProto := opts.Protocol
+		if effectiveProto == "" {
+			effectiveProto = "http"
+		}
+		if opts.Cookies != "" && (opts.ForceCookie || !downloader.ShouldBypassCookies(cleanURL, effectiveProto)) {
 			r.Header.Set("Cookie", opts.Cookies)
 		}
 	}
@@ -703,7 +707,11 @@ func (c *DownloadCommand) FetchFileInfo(urlStr string) (*RemoteFileInfo, error) 
 			}, nil
 		}
 
-		meta, err := client.GetVideoMetadata(cleanURL, opts.Cookies)
+		fcStr := "false"
+		if opts.ForceCookie {
+			fcStr = "true"
+		}
+		meta, err := client.GetVideoMetadata(cleanURL, opts.Cookies, fcStr)
 		if err == nil && meta != nil {
 			rawTitle := strings.TrimSpace(meta.Title)
 			if rawTitle == "" {

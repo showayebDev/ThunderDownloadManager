@@ -243,6 +243,7 @@ type DownloadExtraOptions struct {
 	Category       string
 	Queue          string
 	ShowCompletion *bool
+	ForceCookie    bool
 }
 
 // ParseDownloadOptions parses protocol strings, metadata tags, and URL credentials.
@@ -363,6 +364,9 @@ func parseOptionTag(tag string, opts *DownloadExtraOptions) {
 		val := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(tag, "showCompletionWindow="), "showCompletion="), "show_completion=")
 		b := val == "true" || val == "1"
 		opts.ShowCompletion = &b
+	} else if strings.HasPrefix(tag, "force_cookie=") || strings.HasPrefix(tag, "forceCookie=") || strings.HasPrefix(tag, "use_cookie=") || strings.HasPrefix(tag, "useCookie=") {
+		val := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(tag, "force_cookie="), "forceCookie="), "use_cookie="), "useCookie="))
+		opts.ForceCookie = val == "true" || val == "1"
 	}
 }
 

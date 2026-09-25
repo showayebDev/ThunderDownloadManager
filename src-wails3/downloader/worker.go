@@ -99,7 +99,8 @@ func DownloadChunk(ctx context.Context, url string, chunk *ChunkState, file *os.
 		if referer != "" {
 			req.Header.Set("Referer", referer)
 		}
-		if cookies != "" && !ShouldBypassCookies(url, "http") {
+		forceCookie := len(opts) > 5 && (opts[5] == "true" || opts[5] == "1")
+		if cookies != "" && (forceCookie || !ShouldBypassCookies(url, "http")) {
 			req.Header.Set("Cookie", cookies)
 		}
 
