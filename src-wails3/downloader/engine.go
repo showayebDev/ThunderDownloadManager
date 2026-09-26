@@ -1,34 +1,37 @@
+// engine.go manages the singleton Download Engine lifecycle, global bandwidth rate limiting,
+// and task routing/orchestration across HTTP, HLS, YT-DLP, and BitTorrent runners.
 package downloader
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"ThunderDM/src-wails3/storage"
+	"ThunderDM/src-wails3/downloader/limiter"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+// Engine coordinates all active download tasks and shared resources.
 type Engine struct {
 	ctx           context.Context
 	tasks         sync.Map // map[string]TaskRunner
 	globalLimiter *SpeedLimiter
 }
 
-var instance *Engine
-var once sync.Once
+var (
+	instance *Engine
+	once     sync.Once
+)
 
 // GetEngine returns the singleton instance of the download engine.
 func GetEngine() *Engine {
 	once.Do(func() {
 		instance = &Engine{
 			ctx:           context.Background(),
-			globalLimiter: NewSpeedLimiter(0),
+			globalLimiter: limiter.GlobalLimiter,
 		}
 		CleanBinDirectory()
 		InitProxyManager()
@@ -62,114 +65,12 @@ func (e *Engine) Startup(ctx context.Context) {
 	LoadEngineConfig()
 }
 
-// checkDownloadsDatabase checks if filename already exists in SQLite database for the target savePath.
-func checkDownloadsDatabase(savePath, filename string) bool {
-	if filename == "" {
-		return false
-	}
-	return storage.CheckFilenameExists(savePath, filename)
-}
-
-// IsFileActive checks if a file with the given name is currently downloading (.thunderdm / active task), exists on disk, or is in downloads.json.
-func (e *Engine) IsFileActive(savePath, filename string) bool {
-	dest := filepath.Join(savePath, filename)
-	tempThunderdm := dest + ".thunderdm"
-	tempMerging := dest + ".merging"
-
-	active := false
-	e.tasks.Range(func(key, val any) bool {
-		taskRunner, ok := val.(TaskRunner)
-		if !ok {
-			return true
-		}
-		st := taskRunner.GetState()
-		status, _ := st["status"].(DownloadStatus)
-		if status == StatusDownloading || status == StatusPending || status == StatusMerging || status == StatusPaused {
-			taskDest, _ := st["dest_file_path"].(string)
-			taskSavePath, _ := st["save_path"].(string)
-			taskFilename, _ := st["filename"].(string)
-			if (taskDest != "" && strings.EqualFold(filepath.Clean(taskDest), filepath.Clean(dest))) ||
-				(strings.EqualFold(filepath.Clean(taskSavePath), filepath.Clean(savePath)) && strings.EqualFold(taskFilename, filename)) {
-				active = true
-				return false
-			}
-		}
-		return true
-	})
-
-	if active {
-		return true
-	}
-
-	// Check if finished destination file exists
-	if _, err := os.Stat(dest); err == nil {
-		return true
-	}
-	// Check if active .thunderdm temporary container exists
-	if _, err := os.Stat(tempThunderdm); err == nil {
-		return true
-	}
-	// Check if active .merging temporary file exists
-	if _, err := os.Stat(tempMerging); err == nil {
-		return true
-	}
-
-	// Check if active .part / .ytdl temporary files exist
-	baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
-	if baseName != "" {
-		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+"*.part*")); len(matches) > 0 {
-			return true
-		}
-		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+"*.ytdl*")); len(matches) > 0 {
-			return true
-		}
-		if matches, _ := filepath.Glob(filepath.Join(savePath, baseName+".f*")); len(matches) > 0 {
-			return true
-		}
-	}
-
-	// Check if file already exists in SQLite downloads list
-	if checkDownloadsDatabase(savePath, filename) {
-		return true
-	}
-
-	return false
-}
-
-// ResolveUniqueFilename returns an available filename in savePath that does not conflict with existing files or active downloads.
-func (e *Engine) ResolveUniqueFilename(savePath, filename string) string {
-	savePath = NormalizeSavePath(savePath)
-	filename = SanitizeFilename(filename)
-	if filename == "" {
-		filename = "download"
-	}
-
-	ext := filepath.Ext(filename)
-	base := strings.TrimSuffix(filename, ext)
-	if base == "" {
-		base = "download"
-	}
-
-	finalName := filename
-	counter := 1
-
-	for {
-		if !e.IsFileActive(savePath, finalName) {
-			break
-		}
-		finalName = fmt.Sprintf("%s_%d%s", base, counter, ext)
-		counter++
-	}
-
-	return finalName
-}
-
-// AddDownload adds a new download task, auto-detecting Yt-DLP, HLS streams, or standard HTTP files.
+// AddDownload adds a new download task, auto-detecting BitTorrent, Yt-DLP, HLS streams, or standard HTTP files.
 func (e *Engine) AddDownload(id, url, savePath, filename string, threadCount int, protoOpt ...string) error {
 	return e.AddDownloadWithLimit(id, url, savePath, filename, threadCount, nil, protoOpt...)
 }
 
-// AddDownloadWithLimit adds a new download task with speed limit support.
+// AddDownloadWithLimit adds a new download task with an optional per-task speed limit.
 func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, threadCount int, speedLimit *int64, protoOpt ...string) error {
 	savePath = NormalizeSavePath(savePath)
 	rawProto := ""
@@ -193,8 +94,8 @@ func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, thread
 		parsedOpts.Checksum = checksumStr
 	}
 
-	var prevDL int64 = 0
-	var prevTotal int64 = 0
+	var prevDL int64
+	var prevTotal int64
 
 	if val, exists := e.tasks.Load(id); exists {
 		taskRunner := val.(TaskRunner)
@@ -210,28 +111,27 @@ func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, thread
 		if tot, ok := state["total_size"].(int64); ok && tot > 0 {
 			prevTotal = tot
 		}
-		// Task is inactive, we can safely overwrite it to resume
 	}
 
-	isTorrent := strings.EqualFold(proto, "Torrent") || strings.EqualFold(proto, "BitTorrent") || IsTorrentURL(cleanURL) || IsTorrentFile(cleanURL)
-	isYTDLP := !isTorrent && (strings.EqualFold(proto, "Yt-DLP") || strings.EqualFold(proto, "YT-DLP") || strings.EqualFold(proto, "ytdlp") || (strings.EqualFold(proto, "Auto") && IsYTDLPURL(cleanURL)))
+	isTorrent := isTorrentProtocol(proto, cleanURL)
+	isYTDLP := !isTorrent && isYTDLPProtocol(proto, cleanURL)
 	isHLS := !isTorrent && !isYTDLP && (strings.EqualFold(proto, "HLS") || IsHLSURL(cleanURL))
 
 	var taskRunner TaskRunner
-	if isTorrent {
+	switch {
+	case isTorrent:
 		taskRunner = NewTorrentTaskController(e.ctx, id, cleanURL, savePath, filename, threadCount, speedLimit, parsedOpts)
-	} else if isYTDLP {
+	case isYTDLP:
 		taskRunner = NewYTDLPTaskController(e.ctx, id, cleanURL, savePath, filename, quality, prevDL, prevTotal, parsedOpts)
-	} else if isHLS {
+	case isHLS:
 		taskRunner = NewHLSTaskController(e.ctx, id, cleanURL, savePath, filename, threadCount, speedLimit, parsedOpts)
-	} else {
+	default:
 		taskRunner = NewTaskController(e.ctx, id, cleanURL, savePath, filename, threadCount, speedLimit, parsedOpts)
 	}
 
 	e.tasks.Store(id, taskRunner)
 	go taskRunner.Start()
 
-	// Notify frontend that a new download has been added
 	if application.Get() != nil {
 		application.Get().Event.Emit("download-added", map[string]interface{}{
 			"id":             id,
@@ -251,6 +151,20 @@ func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, thread
 	}
 
 	return nil
+}
+
+func isTorrentProtocol(proto, cleanURL string) bool {
+	return strings.EqualFold(proto, "Torrent") ||
+		strings.EqualFold(proto, "BitTorrent") ||
+		IsTorrentURL(cleanURL) ||
+		IsTorrentFile(cleanURL)
+}
+
+func isYTDLPProtocol(proto, cleanURL string) bool {
+	return strings.EqualFold(proto, "Yt-DLP") ||
+		strings.EqualFold(proto, "YT-DLP") ||
+		strings.EqualFold(proto, "ytdlp") ||
+		(strings.EqualFold(proto, "Auto") && IsYTDLPURL(cleanURL))
 }
 
 // SetThreadCount dynamically changes the thread count for a running download.
@@ -291,7 +205,7 @@ func (e *Engine) Pause(id string) error {
 	return taskRunner.Pause()
 }
 
-// PauseAll stops and saves checkpoints for all active download tasks.
+// PauseAll stops and saves checkpoints for all active download tasks with a 1.5s shutdown timeout.
 func (e *Engine) PauseAll() {
 	var wg sync.WaitGroup
 	e.tasks.Range(func(key, val interface{}) bool {
@@ -403,4 +317,3 @@ func (e *Engine) GetActiveTasksInfo() []ActiveTaskInfo {
 	})
 	return results
 }
-

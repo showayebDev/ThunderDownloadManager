@@ -84,7 +84,7 @@ func ResolveExistingFilePath(path string) string {
 
 	standardCategories := []string{"Torrents", "Videos", "Music", "Programs", "Documents", "Compressed", "Pictures"}
 
-	// 1. Try directly sanitizing invalid Windows/Unix characters from filename
+	// Sanitize invalid Windows/Unix characters from filename for candidate lookup
 	sanitizedName := invalidChars.ReplaceAllString(filename, "_")
 	for strings.Contains(sanitizedName, "__") {
 		sanitizedName = strings.ReplaceAll(sanitizedName, "__", "_")

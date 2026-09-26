@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// StartScheduler starts the background loop checking queue constraints
+// StartScheduler starts a background ticker for queue constraint checks (currently a placeholder stub).
 func StartScheduler() {
 	ticker := time.NewTicker(5 * time.Second)
 	for {

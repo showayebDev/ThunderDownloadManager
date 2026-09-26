@@ -15,7 +15,7 @@ func initLogger() {
 	log.SetOutput(os.Stdout)
 	log.SetFlags(log.Ldate | log.Ltime)
 
-	// In development builds, also write to a debug file if the --debug flag is explicitly passed.
+	// In development builds, also write to a debug file if the --debug or -d flag is explicitly passed.
 	for _, arg := range os.Args[1:] {
 		if arg == "--debug" || arg == "-d" {
 			logFile, err := os.OpenFile("ThunderDM_debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)

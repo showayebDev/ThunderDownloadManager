@@ -68,7 +68,7 @@ export const saveToThunderDB = async (key: string, data: any, immediate: boolean
 };
 
 export const loadFromThunderDB = async <T>(key: string, defaultValue: T): Promise<T> => {
-  // Read json file from ~/.thunderdm
+  // Read persisted key from SQLite storage (~/.thunderdm/thunderdm.db)
   try {
     const content = await invoke<string | null>('read_thunderdb_file_command', {
       filename: `${key}.json`,

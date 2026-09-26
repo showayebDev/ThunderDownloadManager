@@ -1,3 +1,8 @@
+// Package commands exposes Wails v3 service bindings for download management, window orchestration,
+// file operations, queues, and system integration.
+//
+// This file (file.go) defines the FileCommand service for local file/folder opening, deletion,
+// checksum calculation, file picker dialogs, and SQLite persistence RPC bridges.
 package commands
 
 import (

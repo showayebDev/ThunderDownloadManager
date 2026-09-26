@@ -47,14 +47,14 @@ type Point struct {
 	X, Y float64
 }
 
-// Resize rescales an image using Lanczos/CatmullRom resampling.
+// resizeImage rescales an image using CatmullRom resampling.
 func resizeImage(src image.Image, width, height int) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	return dst
 }
 
-// Helper to write PNG files to disk securely.
+// savePNG writes a PNG image to disk, creating parent directories if needed.
 func savePNG(img image.Image, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
@@ -67,7 +67,7 @@ func savePNG(img image.Image, path string) error {
 	return png.Encode(f, img)
 }
 
-// Saves a multi-resolution Windows ICO file (512, 256, 128, 64).
+// saveICOMultiRes saves a multi-resolution Windows ICO file (512, 256, 128, 64).
 func saveICOMultiRes(iconImg image.Image, icoPath string) error {
 	sizes := []int{512, 256, 128, 64}
 
@@ -134,7 +134,7 @@ func saveICOMultiRes(iconImg image.Image, icoPath string) error {
 	return nil
 }
 
-// Saves an ICNS container housing a 512x512 PNG stream.
+// saveICNS512 saves an ICNS container housing a 512x512 PNG stream.
 func saveICNS512(iconImg image.Image, icnsPath string) error {
 	if err := os.MkdirAll(filepath.Dir(icnsPath), 0755); err != nil {
 		return err

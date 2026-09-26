@@ -458,8 +458,8 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
 		_ = os.WriteFile(extPopupPath, []byte(epStr), 0644)
 	}
 
-	// 10. Sync dist extension manifests & popups if dist exists
-	for _, browserTarget := range []string{"chrome", "firefox", "edge"} {
+	// 10. Sync extension/dist/{chromium,firefox} manifests & popups if dist exists
+	for _, browserTarget := range []string{"chromium", "firefox"} {
 		mPath := filepath.Join(rootDir, "extension", "dist", browserTarget, "manifest.json")
 		if mData, err := os.ReadFile(mPath); err == nil {
 			mStr := string(mData)

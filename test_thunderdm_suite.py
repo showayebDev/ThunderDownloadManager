@@ -14,6 +14,9 @@ Modules Included:
   4. Proxy Subsystem (Direct/None, Manual HTTP/SOCKS, Bypass Lists, CIDR, PAC)
   5. SQLite Database & Storage Engine (~/.thunderdm/thunderdm.db, KV Store, Sync)
   6. UI, Menus, Modals & Settings Structure Validator (Static & Headless Browser)
+  7. Queue Scheduler & Automatic Start/Stop Time Engine Tester
+  8. Appearance Tab Full Settings & Formatters Tester
+  9. Download Engine Tab Full Logic & Persistence Tester
 
 Usage:
   python test_thunderdm_suite.py --all
@@ -23,6 +26,9 @@ Usage:
   python test_thunderdm_suite.py --module proxy
   python test_thunderdm_suite.py --module storage
   python test_thunderdm_suite.py --module ui
+  python test_thunderdm_suite.py --module scheduler
+  python test_thunderdm_suite.py --module appearance
+  python test_thunderdm_suite.py --module engine-settings
   python test_thunderdm_suite.py --browser-test  (optional live browser automation)
 ================================================================================
 """
@@ -957,7 +963,7 @@ def run_proxy_engine_tests():
     except Exception as e:
         report.record("Proxy", "PAC Proxy Directive Extraction & Evaluation", False, str(e), (time.time() - t0) * 1000)
 
-    # 4.8 PAC Live HTTP Server & File URL Handling
+    # 4.8 PAC Local File & SOCKS5 Directive Resolution
     t0 = time.time()
     try:
         # Create a temporary local PAC file to test file:// loading
@@ -975,7 +981,9 @@ def run_proxy_engine_tests():
         report.record("Proxy", "PAC Live Local File & SOCKS Directive Resolution", False, str(e), (time.time() - t0) * 1000)
 
 
-
+# ==============================================================================
+# MODULE 5: SQLite Database & Storage Engine Tester
+# ==============================================================================
 def cleanup_user_json_files():
     """Removes any obsolete legacy JSON config files from ~/.thunderdm/ to ensure pure SQLite is used."""
     try:
@@ -1220,7 +1228,7 @@ def run_ui_structure_tests():
     except Exception as e:
         report.record("UI", "ProxyModal.tsx Modes & Probe Connection Validation", False, str(e), (time.time() - t0) * 1000)
 
-    # 6.5 Verify DownloadConfirmation.tsx Auto-population
+    # 6.5 Verify DownloadStartConfirmation.tsx Auto-population
     t0 = time.time()
     try:
         confirm_path = workspace / "frontend" / "src" / "components" / "window" / "DownloadStartConfirmation.tsx"

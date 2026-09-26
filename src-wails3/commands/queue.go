@@ -1,3 +1,7 @@
+// Package commands exposes Wails v3 service bindings for download management, window orchestration,
+// file operations, queues, and system integration.
+//
+// This file (queue.go) defines the QueueCommand service and QueueConfig model for download queue management.
 package commands
 
 import (
@@ -68,4 +72,3 @@ func (c *QueueCommand) DeleteQueue(id string) error {
 	queues = updated
 	return nil
 }
-
