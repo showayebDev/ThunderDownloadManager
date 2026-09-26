@@ -31,9 +31,10 @@ Official companion browser extension for **Thunder Download Manager (ThunderDM)*
 
 ## ✨ Key Features
 
-### ⚡ Automatic Download Interception
-- **Native Browser Download Interception:** Hooks into the browser download manager (`chrome.downloads` API) to detect file downloads, cancel the browser's slow single-threaded download dialog, and dispatch the download job directly to ThunderDM.
-- **Smart Link Interception:** Automatically identifies clicks on downloadable file links matching dozens of media, archive, document, and executable extensions (`.mp4`, `.mkv`, `.zip`, `.rar`, `.7z`, `.iso`, `.exe`, `.msi`, `.dmg`, `.deb`, `.pdf`, `.torrent`, etc.) as well as links with `download` attributes.
+### ⚡ Automatic Download Interception & Browser Transfer
+- **Native Browser Download Interception:** Hooks into the browser download manager (`downloads` API) to detect file downloads, cancel the browser's slow single-threaded download, and dispatch the download job directly to ThunderDM.
+- **Active Browser Downloads → *"⚡ Transfer to Thunder"*:** If a download is already running (`in_progress`), `Paused`, or `Interrupted` in the browser's native download manager, opening the extension popup displays an **Active Browser Downloads** panel at the top with real-time progress (`242 MB / 1.3 GB`), a live progress bar, and a one-click **⚡ Transfer to Thunder** button. Clicking it immediately forwards the resolved `finalUrl`, `filename`, `referrer`, and domain `cookies` to ThunderDM while automatically cancelling and erasing the browser download.
+- **Smart Link & Torrent Interception:** Automatically identifies clicks on downloadable file links matching dozens of media, archive, document, and executable extensions (`.mp4`, `.mkv`, `.zip`, `.rar`, `.7z`, `.iso`, `.exe`, `.msi`, `.dmg`, `.deb`, `.pdf`, `.torrent`, etc.), links with `download` attributes, and **`magnet:`** links.
 
 ### 🎬 Intelligent Video & Media Sniffer
 - **Multi-Platform Video Sniffing:** Automatically detects video elements across major video and social platforms, including **YouTube, Facebook (Reels & Watch), TikTok, Instagram (Reels & Posts), Twitter / X, Vimeo, Dailymotion**, and raw **HLS / m3u8** streams.
@@ -48,9 +49,9 @@ Official companion browser extension for **Thunder Download Manager (ThunderDM)*
 - **Single-Click Download:** Click the badge to instantly dispatch the media stream to ThunderDM for high-speed segmented downloading and automated format assembly.
 
 ### 🍪 Advanced Cookie & Session Forwarding
-- **Private & Authenticated Downloads:** Built-in option to forward browser cookies to ThunderDM desktop client for downloading private resources (e.g., files from private GitHub repositories, password-protected sites, or member-only media).
-- **Dual-Layer Cookie Extraction:** Extracts both server-side/`HttpOnly` cookies (`API.cookies.getAll`) and client-side JavaScript cookies (`document.cookie`) when enabled.
-- **Privacy-First (Default OFF):** Located under **Advanced Settings** and set to **OFF** by default. When turned off, zero cookies are accessed or transmitted.
+- **Private & Authenticated Downloads:** Forwards browser cookies to the ThunderDM desktop client for downloading private resources (e.g., restricted server links, private repositories, password-protected sites, or authenticated streams)—including when transferring an active browser download.
+- **Dual-Layer Cookie Extraction:** Extracts both server-side/`HttpOnly` cookies (`cookies.getAll`) and client-side JavaScript cookies (`document.cookie`) when enabled.
+- **Strict Domain Verification:** Enforces same-domain / base-domain matching so cookies are only attached when the download host matches the origin domain.
 
 ### 🖱️ Context Menu Integration
 - Right-click on any **image, video, audio element, link, or highlighted text** to trigger *"Download with ThunderDM"* directly from the browser context menu.
@@ -68,14 +69,14 @@ Official companion browser extension for **Thunder Download Manager (ThunderDM)*
 │                                                             │
 │  ┌────────────────────────┐     ┌────────────────────────┐  │
 │  │     Content Script     │     │     Extension Popup    │  │
-│  │   (DOM & Video Badge)  │     │   (Status & Settings)  │  │
+│  │   (DOM & Video Badge)  │     │ (Transfer & Settings)  │  │
 │  └───────────┬────────────┘     └───────────┬────────────┘  │
 │              │                              │               │
 │              └──────────────┬───────────────┘               │
 │                             ▼                               │
 │              ┌─────────────────────────────┐                │
 │              │  Background Service Worker  │                │
-│              │ (chrome.downloads, Cookies) │                │
+│              │ (downloads API & Cookies)   │                │
 │              └──────────────┬──────────────┘                │
 └─────────────────────────────┼───────────────────────────────┘
                               │ HTTP POST /add (JSON)
@@ -86,15 +87,15 @@ Official companion browser extension for **Thunder Download Manager (ThunderDM)*
 │               Local Server (Port 37555)                     │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │   Multi-Segment Engine  /  yt-dlp Engine  /  Queue     │  │
+│  │   Multi-Segment Engine  /  yt-dlp Engine  /  Torrent  │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-1. **Content Script (`content.js` & `content.css`)**: Observes DOM mutations, tracks mouse movement, detects HTML5 `<video>` tags, and renders the floating badge. It also captures direct file download link clicks.
-2. **Background Worker (`background.js`)**: Manages extension state, context menus, download event interception (`onCreated`, `onDeterminingFilename`), cookie extraction, and HTTP dispatching to the desktop client.
-3. **Popup Interface (`popup.js` & `popup.html`)**: Provides real-time connection status monitoring, active tab info, download triggers, and configuration toggles.
-4. **Desktop REST API**: The desktop client listens on local port `37555` (with fallback ports `57211` and `9988`) to receive incoming download jobs.
+1. **Content Script (`content.js` & `content.css`)**: Observes DOM mutations, tracks mouse movement, detects HTML5 `<video>` tags, and renders the floating badge. It also captures direct file download and `magnet:` link clicks.
+2. **Background Worker (`background.js`)**: Manages extension state, context menus, download event interception (`downloads.onCreated`), active browser download inspection & transfer (`GET_BROWSER_DOWNLOADS`, `TRANSFER_BROWSER_DOWNLOAD`), cookie extraction, and HTTP dispatching to the desktop client.
+3. **Popup Interface (`popup.js` & `popup.html`)**: Displays live active browser downloads with one-click *"⚡ Transfer to Thunder"*, active tab URL/title inspection, media & standard download triggers, and configuration controls.
+4. **Desktop REST API**: The desktop client listens on local port `37555` (with automatic fallback probing on ports `57211` and `9988`) to receive incoming download jobs.
 
 ---
 
@@ -172,15 +173,15 @@ Clicking the ThunderDM icon in the browser toolbar opens the popup control panel
 
 | Setting / Control | Description |
 | :--- | :--- |
-| **Connection Status Indicator** | Displays real-time connectivity status with ThunderDM desktop client (`Connected`, `Offline`, `Disabled in App`, or `Checking...`). |
+| **Active Browser Downloads (`⚡ Transfer to Thunder`)** | Automatically appears at the top of the popup when any download is running, paused, or interrupted in the browser. Shows live progress and transfers the download (with `finalUrl`, `filename`, `referrer`, and `cookies`) to ThunderDM in one click. |
 | **Current Page / Media Link** | Displays the active URL and page title, with a one-click clipboard copy button. |
-| **Download with yt-dlp** | Sends the URL to ThunderDM using the `yt-dlp` media extraction engine for high-quality audio/video. |
-| **Download with ThunderDM** | Sends the URL for multi-threaded segmented file download. |
+| **Download Video / Stream (`HD+`)** | Sends the URL to ThunderDM using the `yt-dlp` media extraction engine for best video & audio quality. |
+| **Download with ThunderDM** | Sends the URL for multi-threaded high-speed segmented file download. |
 | **Intercept Browser Downloads** | Toggle to turn automatic browser download interception ON or OFF. |
-| **Video Download Badge Mode** | Select between `Show on Hover`, `Show Always`, or `Never Show`. |
+| **Video Download Badge** | Select between `Show on Hover`, `Show Always`, or `Never Show`. |
 | **Unhover Visible Duration** | Adjust how long the hover badge stays visible after moving the mouse away (1 to 10 seconds). |
-| **Advanced Settings: Server Port** | Configure a custom local server port (default: `37555`). |
-| **Advanced Settings: Pass Browser Cookies** | Toggle ON/OFF to forward server (`HttpOnly`) & client cookies with downloads for private repositories and authenticated streams (default: `OFF`). |
+| **Advanced Settings: Server Port** | Configure a custom local server port (default: `37555`, with automatic fallback probing on `57211` and `9988`). |
+| **Advanced Settings: Pass Browser Cookies** | Toggle ON/OFF to forward server (`HttpOnly`) & client cookies with downloads for private servers and authenticated streams (default: `ON`). |
 | **Advanced Settings: Test Connection** | Live connection test button to verify desktop client communication. |
 
 ---
@@ -201,6 +202,7 @@ The extension communicates with the ThunderDM desktop application via local HTTP
   "referrer": "https://example.com/downloads",
   "cookies": "session_id=xyz; auth_token=abc",
   "user_agent": "Mozilla/5.0 ...",
+  "is_torrent": false,
   "is_ytdlp": false,
   "protocol": "Auto",
   "title": "Example Download"
@@ -220,7 +222,7 @@ The extension communicates with the ThunderDM desktop application via local HTTP
 {
   "status": "ok",
   "app": "ThunderDM",
-  "version": "1.0.0-beta",
+  "version": "1.2.0",
   "browser_integration": true
 }
 ```
@@ -229,22 +231,27 @@ The extension communicates with the ThunderDM desktop application via local HTTP
 
 ## ❓ Troubleshooting & FAQ
 
-#### 1. The extension says "Offline" or "Thunder Download Manager is not running in background"
+#### 1. How can I transfer a download that is already running in my browser to ThunderDM?
+- Click the **ThunderDM** extension icon in your browser toolbar while the download is in progress (or paused/interrupted).
+- At the top of the popup under **Active Browser Downloads**, click **⚡ Transfer to Thunder**.
+- The extension will automatically cancel and remove the slow browser download and transfer it to ThunderDM along with its filename, referrer, and cookies.
+
+#### 2. The extension says "Thunder Download Manager is not running in background"
 - Ensure that the ThunderDM desktop application is open and running on your system.
 - Check if your firewall or antivirus is blocking local loopback connections on port `37555`.
 - Open **Advanced Settings** in the extension popup and click **Test Connection**.
 
-#### 2. The extension badge says "Disabled in App"
+#### 3. The extension says "Browser integration is disabled in ThunderDM Settings"
 - Open ThunderDM desktop application, go to **Settings**, and ensure **Browser Integration** is toggled **ON**.
 
-#### 3. Why are `blob:` or `data:` URLs not sent to ThunderDM?
+#### 4. Why are `blob:` or `data:` URLs not sent to ThunderDM?
 - `blob:` and `data:` URLs are temporary objects stored strictly in the browser tab's internal memory and cannot be accessed externally by another process. The extension gracefully routes these back to the browser's native download handler.
 
-#### 4. How do I download files from private GitHub repositories or authenticated websites?
-- Open the extension popup, expand **Advanced Settings**, and toggle **Pass Browser Cookies** to **ON**.
-- Click the download link or button in your browser; the extension will forward the authenticated session cookies directly to ThunderDM.
+#### 5. How do I download files from private servers or authenticated websites?
+- Ensure **Pass Browser Cookies** is toggled **ON** under **Advanced Settings** in the extension popup (enabled by default).
+- Click the download link or transfer an active browser download; the extension will forward the authenticated domain cookies directly to ThunderDM.
 
-#### 5. How do I change the connection port?
+#### 6. How do I change the connection port?
 - If ThunderDM is running on a non-default port, open the extension popup, expand **Advanced Settings**, update the **Server Port**, and click **Test Connection**.
 
 ---

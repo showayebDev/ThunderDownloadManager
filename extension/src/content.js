@@ -58,6 +58,7 @@ function syncConfig() {
   if (api && api.storage && api.storage.local) {
     try {
       api.storage.local.get(['config'], (result) => {
+        if (api.runtime && api.runtime.lastError) return;
         if (result && result.config) {
           config = { ...config, ...result.config };
           onConfigUpdated();
@@ -130,8 +131,17 @@ function showInPageAlert(title, message, targetUrl, targetFilename) {
   header.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 14px;';
 
   const iconContainer = document.createElement('div');
-  iconContainer.style.cssText = 'width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #7c3aed, #4f46e5); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(124, 58, 237, 0.4);';
-  iconContainer.textContent = '⚡';
+  iconContainer.style.cssText = 'width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #7c3aed, #4f46e5); display: flex; align-items: center; justify-content: center; overflow: hidden; color: #fff; font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(124, 58, 237, 0.4);';
+  const appIcon = getAppIconUrl();
+  if (appIcon) {
+    const iconImg = document.createElement('img');
+    iconImg.src = appIcon;
+    iconImg.style.cssText = 'width: 22px; height: 22px; object-fit: contain;';
+    iconImg.alt = 'ThunderDM';
+    iconContainer.appendChild(iconImg);
+  } else {
+    iconContainer.textContent = '⚡';
+  }
 
   const titleEl = document.createElement('div');
   titleEl.style.cssText = 'font-weight: 700; font-size: 17px; color: #ffffff; letter-spacing: -0.2px;';

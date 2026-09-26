@@ -1,6 +1,6 @@
 // Background service worker for extension event handling
 
-const API = typeof browser !== 'undefined' ? browser : chrome;
+const API = (typeof chrome !== 'undefined' && chrome && chrome.runtime) ? chrome : (typeof browser !== 'undefined' ? browser : null);
 
 const serviceWorkerStartTime = Date.now();
 const STARTUP_GRACE_PERIOD_MS = 3500; // Ignore automatic restored session downloads on startup
@@ -18,24 +18,94 @@ let config = {
   passCookies: true
 };
 
-// Load stored settings
-API.storage.local.get(['config'], (result) => {
-  if (result && result.config) {
-    config = { ...config, ...result.config };
+// Helper to safely consume lastError
+function consumeLastError() {
+  let err = null;
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+      err = chrome.runtime.lastError;
+    }
+  } catch {}
+  try {
+    if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.lastError) {
+      err = err || browser.runtime.lastError;
+    }
+  } catch {}
+  try {
+    if (API && API.runtime && API.runtime.lastError) {
+      err = err || API.runtime.lastError;
+    }
+  } catch {}
+  return err;
+}
+
+function readStoredConfig() {
+  return new Promise((resolve) => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+        chrome.storage.local.get(['config'], (result) => {
+          consumeLastError();
+          if (result && result.config && typeof result.config === 'object') {
+            config = { ...config, ...result.config };
+          }
+          resolve(config);
+        });
+        return;
+      }
+      if (typeof browser !== 'undefined' && browser?.storage?.local) {
+        browser.storage.local.get(['config']).then((result) => {
+          if (result && result.config && typeof result.config === 'object') {
+            config = { ...config, ...result.config };
+          }
+          resolve(config);
+        }).catch(() => resolve(config));
+        return;
+      }
+    } catch {}
+    resolve(config);
+  });
+}
+
+async function writeStoredConfig(partialConfig) {
+  await readStoredConfig();
+  if (partialConfig && typeof partialConfig === 'object') {
+    config = { ...config, ...partialConfig };
   }
-});
+  return new Promise((resolve) => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+        chrome.storage.local.set({ config }, () => {
+          consumeLastError();
+          resolve(config);
+        });
+        return;
+      }
+      if (typeof browser !== 'undefined' && browser?.storage?.local) {
+        browser.storage.local.set({ config }).then(() => resolve(config)).catch(() => resolve(config));
+        return;
+      }
+    } catch {}
+    resolve(config);
+  });
+}
+
+// Load stored settings and listen for live changes
+readStoredConfig();
+
+if (API && API.storage && API.storage.onChanged) {
+  try {
+    API.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.config && changes.config.newValue) {
+        config = { ...config, ...changes.config.newValue };
+      }
+    });
+  } catch {}
+}
 
 const bypassedDownloadUrls = new Map();
 const bypassedDownloadIds = new Set();
 const interceptedDownloadIds = new Set();
 const cancelledDownloadIds = new Set();
-
-// Helper to safely consume lastError
-function consumeLastError() {
-  return (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) ||
-         (typeof browser !== 'undefined' && browser.runtime && browser.runtime.lastError) ||
-         (API && API.runtime && API.runtime.lastError);
-}
 
 // Immediately discover and mark all pre-existing downloads from earlier sessions as bypassed
 if (API.downloads && typeof API.downloads.search === 'function') {
@@ -46,8 +116,6 @@ if (API.downloads && typeof API.downloads.search === 'function') {
         for (const item of items) {
           if (item && item.id) {
             bypassedDownloadIds.add(item.id);
-            interceptedDownloadIds.add(item.id);
-            cancelledDownloadIds.add(item.id);
           }
         }
       }
@@ -204,8 +272,7 @@ async function sendToThunderDM(payload, tabId) {
           if (data && data.status === 'success') {
             isThunderRunning = true;
             if (port !== customPort) {
-              config.serverPort = port;
-              API.storage.local.set({ config });
+              writeStoredConfig({ serverPort: port });
             }
             return { success: true, data };
           }
@@ -316,7 +383,7 @@ function showAppNotRunningAlert(tabId, customMessage, targetUrl, targetFilename)
                 backdrop.remove();
                 if (downloadUrl) {
                   try {
-                    const api = typeof browser !== 'undefined' ? browser : chrome;
+                    const api = (typeof chrome !== 'undefined' && chrome && chrome.runtime) ? chrome : (typeof browser !== 'undefined' ? browser : null);
                     if (api && api.runtime && api.runtime.sendMessage) {
                       api.runtime.sendMessage({
                         action: 'TRIGGER_BROWSER_DOWNLOAD',
@@ -424,10 +491,28 @@ async function getCookiesForUrl(url, tabId, pageUrl) {
   try {
     const cookieMap = new Map();
 
-    // 1. Server-side & HttpOnly cookies via browser API
-    if (API.cookies && API.cookies.getAll) {
+    // 1. Server-side & HttpOnly cookies via browser API (supports both callback and Promise)
+    if (API && API.cookies && typeof API.cookies.getAll === 'function') {
       try {
-        const cookies = await API.cookies.getAll({ url });
+        const cookies = await new Promise((resolve) => {
+          try {
+            API.cookies.getAll({ url }, (items) => {
+              consumeLastError();
+              resolve(Array.isArray(items) ? items : []);
+            });
+          } catch {
+            try {
+              const p = API.cookies.getAll({ url });
+              if (p && typeof p.then === 'function') {
+                p.then((items) => resolve(Array.isArray(items) ? items : [])).catch(() => resolve([]));
+              } else {
+                resolve([]);
+              }
+            } catch {
+              resolve([]);
+            }
+          }
+        });
         if (Array.isArray(cookies)) {
           for (const c of cookies) {
             if (c && c.name) {
@@ -595,24 +680,102 @@ API.contextMenus.onClicked.addListener(async (info, tab) => {
   const res = await sendToThunderDM(payload, tab?.id);
 });
 
-function cancelBrowserDownload(id) {
-  if (!id || cancelledDownloadIds.has(id)) return;
+function extractDownloadFilename(downloadItem) {
+  if (!downloadItem) return 'Unknown File';
+  if (downloadItem.filename && typeof downloadItem.filename === 'string') {
+    const base = downloadItem.filename.split(/[/\\]/).pop();
+    if (base && base.trim()) return base.trim();
+  }
+  const targetUrl = downloadItem.finalUrl || downloadItem.url || '';
+  if (targetUrl) {
+    try {
+      const parsed = new URL(targetUrl);
+      const pathPart = decodeURIComponent(parsed.pathname.split('/').pop() || '');
+      if (pathPart && pathPart.trim() && pathPart !== '/') {
+        return pathPart.trim();
+      }
+    } catch {}
+  }
+  return 'Download_File';
+}
+
+function isTransferableDownloadUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const lowerUrl = url.toLowerCase().trim();
+  if (
+    lowerUrl.startsWith('blob:') ||
+    lowerUrl.startsWith('data:') ||
+    lowerUrl.startsWith('file:') ||
+    lowerUrl.startsWith('chrome:') ||
+    lowerUrl.startsWith('chrome-extension:') ||
+    lowerUrl.startsWith('moz-extension:') ||
+    lowerUrl.startsWith('edge:') ||
+    lowerUrl.startsWith('about:') ||
+    lowerUrl.startsWith('devtools:') ||
+    lowerUrl.startsWith('javascript:') ||
+    lowerUrl.startsWith('view-source:')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function cancelBrowserDownload(id, force = false, onDone = null, knownState = 'in_progress') {
+  if (!id || (!force && cancelledDownloadIds.has(id))) {
+    if (typeof onDone === 'function') onDone();
+    return;
+  }
   cancelledDownloadIds.add(id);
 
-  try {
-    if (API.downloads && typeof API.downloads.cancel === 'function') {
-      API.downloads.cancel(id, () => {
-        consumeLastError();
-        try {
-          if (typeof API.downloads.erase === 'function') {
-            API.downloads.erase({ id }, () => {
-              consumeLastError();
-            });
-          }
-        } catch {}
-      });
+  const eraseItem = () => {
+    try {
+      if (API.downloads && typeof API.downloads.erase === 'function') {
+        API.downloads.erase({ id }, () => {
+          consumeLastError();
+          if (typeof onDone === 'function') onDone();
+        });
+      } else if (typeof onDone === 'function') {
+        onDone();
+      }
+    } catch {
+      if (typeof onDone === 'function') onDone();
     }
-  } catch {}
+  };
+
+  const doCancel = (state) => {
+    if (state && state !== 'in_progress') {
+      eraseItem();
+      return;
+    }
+    try {
+      if (API.downloads && typeof API.downloads.cancel === 'function') {
+        API.downloads.cancel(id, () => {
+          consumeLastError();
+          eraseItem();
+        });
+      } else {
+        eraseItem();
+      }
+    } catch {
+      eraseItem();
+    }
+  };
+
+  if (knownState) {
+    doCancel(knownState);
+  } else if (API.downloads && typeof API.downloads.search === 'function') {
+    try {
+      API.downloads.search({ id }, (items) => {
+        consumeLastError();
+        const currentState = Array.isArray(items) && items[0] ? items[0].state : 'in_progress';
+        doCancel(currentState);
+      });
+    } catch {
+      doCancel('in_progress');
+    }
+  } else {
+    doCancel('in_progress');
+  }
 }
 
 // Intercept browser downloads
@@ -625,10 +788,10 @@ if (API.downloads && API.downloads.onCreated) {
     const id = downloadItem.id;
     if (id) {
       interceptedDownloadIds.add(id);
-      cancelBrowserDownload(id);
+      cancelBrowserDownload(id, false, null, downloadItem.state || 'in_progress');
     }
 
-    const url = downloadItem.url || downloadItem.finalUrl;
+    const url = downloadItem.finalUrl || downloadItem.url;
     if (!url) return;
 
     // Forward download details to app
@@ -655,24 +818,6 @@ if (API.downloads && API.downloads.onCreated) {
 
       await sendToThunderDM(payload);
     })();
-  });
-}
-
-if (API.downloads && API.downloads.onDeterminingFilename) {
-  API.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-    if (!downloadItem) return;
-    const id = downloadItem.id;
-    if (id && (bypassedDownloadIds.has(id) || cancelledDownloadIds.has(id))) {
-      return;
-    }
-    if (!shouldInterceptDownload(downloadItem)) {
-      return;
-    }
-
-    if (id) {
-      interceptedDownloadIds.add(id);
-      cancelBrowserDownload(id);
-    }
   });
 }
 
@@ -716,26 +861,23 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'GET_CONFIG') {
-    API.storage.local.get(['config'], (result) => {
-      if (result && result.config) {
-        config = { ...config, ...result.config };
-      }
-      sendResponse({ config });
+    readStoredConfig().then((loadedConfig) => {
+      sendResponse({ config: loadedConfig });
     });
     return true;
   }
 
   if (request.action === 'SET_CONFIG') {
-    config = { ...config, ...request.config };
-    API.storage.local.set({ config }, () => {
+    writeStoredConfig(request.config).then((updatedConfig) => {
       // Broadcast updated config to open tabs
       try {
         API.tabs.query({}, (tabs) => {
+          consumeLastError();
           if (tabs && tabs.length) {
             for (const tab of tabs) {
               try {
-                API.tabs.sendMessage(tab.id, { action: 'UPDATE_CONFIG', config }, () => {
-                  if (API.runtime.lastError) { /* tab not listening */ }
+                API.tabs.sendMessage(tab.id, { action: 'UPDATE_CONFIG', config: updatedConfig }, () => {
+                  consumeLastError();
                 });
               } catch { }
             }
@@ -743,7 +885,7 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       } catch { }
 
-      sendResponse({ success: true, config });
+      sendResponse({ success: true, config: updatedConfig });
     });
     return true;
   }
@@ -793,8 +935,7 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
               const data = await res.json();
               if (data && data.app === 'ThunderDM') {
                 isThunderRunning = true;
-                config.serverPort = p;
-                API.storage.local.set({ config });
+                await writeStoredConfig({ serverPort: p });
                 sendResponse({ success: true, port: p, host, data, fallbackDetected: true, originalPort: targetPort });
                 return;
               }
@@ -837,6 +978,144 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     }
     sendResponse({ success: true });
+    return true;
+  }
+
+  if (request.action === 'GET_BROWSER_DOWNLOADS') {
+    if (!API.downloads || typeof API.downloads.search !== 'function') {
+      sendResponse({ downloads: [] });
+      return true;
+    }
+
+    try {
+      API.downloads.search({}, (items) => {
+        consumeLastError();
+        if (!Array.isArray(items)) {
+          sendResponse({ downloads: [] });
+          return;
+        }
+
+        const now = Date.now();
+        const result = [];
+
+        for (const item of items) {
+          if (!item || !item.id) continue;
+          if (cancelledDownloadIds.has(item.id) || interceptedDownloadIds.has(item.id)) continue;
+
+          const targetUrl = item.finalUrl || item.url || '';
+          if (!isTransferableDownloadUrl(targetUrl)) continue;
+
+          if (item.state === 'in_progress') {
+            // Active or paused download
+          } else if (item.state === 'interrupted') {
+            if (item.error === 'USER_CANCELED' || item.error === 'USER_SHUTDOWN') continue;
+            const startMs = item.startTime ? new Date(item.startTime).getTime() : 0;
+            if (!startMs || (now - startMs > 24 * 60 * 60 * 1000)) continue;
+          } else {
+            continue;
+          }
+
+          result.push({
+            id: item.id,
+            url: targetUrl,
+            finalUrl: item.finalUrl || item.url || '',
+            originalUrl: item.url || targetUrl,
+            filename: extractDownloadFilename(item),
+            referrer: item.referrer || '',
+            bytesReceived: Math.max(0, Number(item.bytesReceived) || 0),
+            totalBytes: Math.max(0, Number(item.totalBytes) || 0),
+            state: item.state || 'in_progress',
+            paused: Boolean(item.paused),
+            error: item.error || null,
+            startTime: item.startTime || ''
+          });
+        }
+
+        result.sort((a, b) => {
+          const rank = (d) => (d.state === 'in_progress' && !d.paused ? 0 : d.paused ? 1 : 2);
+          const diff = rank(a) - rank(b);
+          if (diff !== 0) return diff;
+          return (b.id || 0) - (a.id || 0);
+        });
+
+        sendResponse({ downloads: result });
+      });
+    } catch {
+      sendResponse({ downloads: [] });
+    }
+    return true;
+  }
+
+  if (request.action === 'TRANSFER_BROWSER_DOWNLOAD') {
+    (async () => {
+      const downloadId = Number(request.downloadId);
+      const fallbackItem = request.item || {};
+
+      let liveItem = null;
+      if (downloadId && API.downloads && typeof API.downloads.search === 'function') {
+        liveItem = await new Promise((resolve) => {
+          try {
+            API.downloads.search({ id: downloadId }, (items) => {
+              consumeLastError();
+              resolve(Array.isArray(items) && items[0] ? items[0] : null);
+            });
+          } catch {
+            resolve(null);
+          }
+        });
+      }
+
+      const sourceItem = liveItem || fallbackItem;
+      const targetUrl = sourceItem?.finalUrl || sourceItem?.url || fallbackItem?.finalUrl || fallbackItem?.url || '';
+      const originalUrl = sourceItem?.url || fallbackItem?.originalUrl || targetUrl;
+
+      if (!targetUrl || !isTransferableDownloadUrl(targetUrl)) {
+        sendResponse({ success: false, error: 'Invalid or non-transferable download URL.' });
+        return;
+      }
+
+      const rawFilename = extractDownloadFilename(sourceItem);
+      const filename = (rawFilename === 'Download_File' || rawFilename === 'Unknown File') ? '' : rawFilename;
+      const pageUrl = sourceItem?.referrer || fallbackItem?.referrer || '';
+
+      let cookies = await getCookiesForUrl(targetUrl, undefined, '');
+      if (!cookies && originalUrl && originalUrl !== targetUrl) {
+        cookies = await getCookiesForUrl(originalUrl, undefined, '');
+      }
+      if (!cookies && pageUrl && isSameDomainOrHost(pageUrl, originalUrl)) {
+        cookies = await getCookiesForUrl(pageUrl, undefined, '');
+      }
+
+      const lowerUrl = targetUrl.toLowerCase();
+      const fnLower = (filename || '').toLowerCase();
+      const isTorrent = lowerUrl.startsWith('magnet:') || lowerUrl.endsWith('.torrent') || lowerUrl.includes('.torrent?') || fnLower.endsWith('.torrent');
+      const isVideo = !isTorrent && isVideoSite(targetUrl);
+
+      const payload = {
+        url: targetUrl,
+        filename: filename,
+        referrer: pageUrl,
+        cookies: cookies || '',
+        user_agent: navigator.userAgent,
+        is_torrent: isTorrent,
+        is_ytdlp: isVideo,
+        protocol: isTorrent ? 'Torrent' : (isVideo ? 'Yt-DLP' : 'Auto')
+      };
+
+      const res = await sendToThunderDM(payload, sender?.tab?.id);
+      if (res && res.success && downloadId) {
+        interceptedDownloadIds.add(downloadId);
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 400);
+          cancelBrowserDownload(downloadId, true, () => {
+            clearTimeout(timer);
+            resolve();
+          }, null);
+        });
+      }
+
+      sendResponse(res);
+    })();
     return true;
   }
 });

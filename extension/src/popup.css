@@ -664,3 +664,188 @@ input:checked + .slider:before {
   border: 1px solid rgba(239, 68, 68, 0.35);
   color: #f87171;
 }
+
+/* Active Browser Downloads (Transfer to Thunder) */
+.browser-downloads-card {
+  border-color: rgba(139, 92, 246, 0.45);
+  background: linear-gradient(180deg, rgba(139, 92, 246, 0.08) 0%, var(--bg-card) 100%);
+  margin-bottom: 10px;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.browser-downloads-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.browser-downloads-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  color: #e2e8f0;
+}
+
+.active-dl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
+  animation: pulse 1.5s infinite;
+}
+
+.downloads-count-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(139, 92, 246, 0.22);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.browser-downloads-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 175px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.browser-downloads-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.browser-downloads-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.browser-downloads-list::-webkit-scrollbar-thumb {
+  background: #2b2b3d;
+  border-radius: 4px;
+}
+
+.browser-download-item {
+  background-color: #14141b;
+  border: 1px solid #28283a;
+  border-radius: 8px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.2s;
+}
+
+.browser-download-item:hover {
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.browser-dl-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.browser-dl-filename {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1f5f9;
+  flex: 1;
+}
+
+.browser-dl-status-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.browser-dl-status-tag.paused {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.browser-dl-status-tag.interrupted {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.browser-dl-progress-bar {
+  width: 100%;
+  height: 4px;
+  background-color: #252536;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.browser-dl-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.browser-dl-progress-fill.indeterminate {
+  width: 45% !important;
+  animation: pulse 1.4s infinite;
+}
+
+.browser-dl-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 1px;
+}
+
+.browser-dl-progress-text {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-transfer-thunder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  color: #ffffff;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+  transition: all 0.18s ease;
+}
+
+.btn-transfer-thunder:hover:not(:disabled) {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-transfer-thunder:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-transfer-thunder:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+

@@ -25,6 +25,18 @@
 
     <!-- Popup controls -->
     <main class="main-content">
+      <!-- Active Browser Downloads (Transfer to Thunder) -->
+      <div id="browser-downloads-card" class="card browser-downloads-card hidden">
+        <div class="browser-downloads-header">
+          <div class="card-label browser-downloads-title">
+            <span class="active-dl-dot"></span>
+            <span>Active Browser Downloads</span>
+          </div>
+          <span id="browser-downloads-count" class="downloads-count-badge">0</span>
+        </div>
+        <div id="browser-downloads-list" class="browser-downloads-list"></div>
+      </div>
+
       <!-- Active page info -->
       <div class="card active-tab-card">
         <div class="card-label">Current Page / Media Link</div>
