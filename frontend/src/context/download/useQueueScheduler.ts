@@ -17,7 +17,9 @@ interface UseQueueSchedulerParams {
   globalSettings: GlobalSettings;
   globalSettingsRef: React.MutableRefObject<GlobalSettings>;
   startingTaskIdsRef: React.MutableRefObject<Set<string>>;
-  resumeItemRef: React.MutableRefObject<(id: string, force?: boolean) => Promise<void>>;
+  resumeItemRef: React.MutableRefObject<
+    (id: string, force?: boolean, isAutoRetry?: boolean) => Promise<void>
+  >;
 }
 
 export const useQueueScheduler = ({
@@ -375,8 +377,21 @@ export const useQueueScheduler = ({
   // Track last triggered start/stop minute to avoid duplicate triggers within the same minute
   const lastSchedulerTriggerRef = React.useRef<Set<string>>(new Set());
 
+  const isSecondaryPopupWindow = () => {
+    const hash = window.location.hash || '';
+    return (
+      hash.includes('realtime-progress') ||
+      hash.includes('download-confirmation') ||
+      hash.includes('add-download') ||
+      hash.includes('download-completed') ||
+      hash.includes('delete-confirm')
+    );
+  };
+
   // Dedicated Queue Scheduler timer (runs every 1 second, independent of download progress updates)
   useEffect(() => {
+    if (isSecondaryPopupWindow()) return;
+
     const checkScheduler = () => {
       const now = new Date();
       const dayNames = [
@@ -487,6 +502,7 @@ export const useQueueScheduler = ({
 
   // Dispatch queued workers when queues change configuration, downloads update, or max concurrency settings change
   useEffect(() => {
+    if (isSecondaryPopupWindow()) return;
     const hasRunningQueue = queues.some((q) => q.isRunning);
     const hasQueuedDownloads = downloads.some((d) => d.status === 'Queued');
     if (hasRunningQueue || hasQueuedDownloads) {

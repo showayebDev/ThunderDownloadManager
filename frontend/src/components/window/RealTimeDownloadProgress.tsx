@@ -89,6 +89,14 @@ export const RealTimeDownloadProgress: React.FC = () => {
   const totalSizeRef = useRef<number>(0);
   const retryAttemptsRef = useRef<number>(0);
   const autoRetryTimerRef = useRef<any>(null);
+  const isCanceledOrClosingRef = useRef<boolean>(false);
+
+  const clearAutoRetryTimer = () => {
+    if (autoRetryTimerRef.current) {
+      clearTimeout(autoRetryTimerRef.current);
+      autoRetryTimerRef.current = null;
+    }
+  };
 
   const handleMinimize = async () => {
     try {
@@ -104,11 +112,14 @@ export const RealTimeDownloadProgress: React.FC = () => {
       totalSizeRef.current
     );
 
-  const handleClose = () =>
-    closeProgressWindow(taskIdRef.current || getInitialTaskId(), statusRef.current);
+  const handleClose = () => {
+    isCanceledOrClosingRef.current = true;
+    clearAutoRetryTimer();
+    return closeProgressWindow(taskIdRef.current || getInitialTaskId(), statusRef.current);
+  };
 
   const applyProgressUpdate = (p: any) => {
-    if (!p) return;
+    if (!p || isCanceledOrClosingRef.current) return;
     if (p.filename) setName(p.filename);
     if (p.url) {
       setUrl(p.url);
@@ -133,20 +144,34 @@ export const RealTimeDownloadProgress: React.FC = () => {
 
     if (p.speed !== undefined && p.speed !== null) {
       setSpeed(p.speed);
-      if (p.speed > 0 && p.status === 'Downloading') retryAttemptsRef.current = 0;
+      if (p.speed > 0 && p.status === 'Downloading') {
+        retryAttemptsRef.current = 0;
+        clearAutoRetryTimer();
+      }
     }
     if (p.status) {
       if (p.status === 'Canceled' || p.status === 'Cancelled') {
+        isCanceledOrClosingRef.current = true;
+        clearAutoRetryTimer();
         Quit();
+        return;
+      }
+      if (p.status === 'Paused' || p.status === 'Finished' || p.status === 'Completed') {
+        clearAutoRetryTimer();
+      }
+      // Do not overwrite 'Downloading' reconnecting state with 'Error' while auto-retry countdown is active
+      if (p.status === 'Error' && autoRetryTimerRef.current !== null) {
         return;
       }
       setStatus(p.status);
       statusRef.current = p.status;
     }
-    if (p.error_message !== undefined && p.error_message !== null && p.error_message !== '') {
-      setErrorMessage(p.error_message);
-    } else if (p.error !== undefined && p.error !== null && p.error !== '') {
-      setErrorMessage(p.error);
+    if (autoRetryTimerRef.current === null) {
+      if (p.error_message !== undefined && p.error_message !== null && p.error_message !== '') {
+        setErrorMessage(p.error_message);
+      } else if (p.error !== undefined && p.error !== null && p.error !== '') {
+        setErrorMessage(p.error);
+      }
     }
 
     if (p.time_left !== undefined && p.time_left !== null) {
@@ -271,6 +296,8 @@ export const RealTimeDownloadProgress: React.FC = () => {
             (typeof payload === 'object' &&
               (payload.id === currentId || payload.taskId === currentId || payload.task_id === currentId)))
         ) {
+          isCanceledOrClosingRef.current = true;
+          clearAutoRetryTimer();
           Quit();
         }
       });
@@ -283,15 +310,22 @@ export const RealTimeDownloadProgress: React.FC = () => {
             payload === urlTaskId ||
             (typeof payload === 'object' && (payload.id === urlTaskId || payload.taskId === urlTaskId))
           ) {
+            isCanceledOrClosingRef.current = true;
+            clearAutoRetryTimer();
             Quit();
           }
         });
       }
 
       unlistenError = await listen('download-error', async (event: any) => {
+        if (isCanceledOrClosingRef.current) return;
+        if (statusRef.current === 'Canceled' || statusRef.current === 'Paused') return;
         const p = event.payload || {};
         const tid = p.id || p.task_id;
         if (tid && tid === taskIdRef.current) {
+          // Ignore duplicate error events while a retry timer is already counting down
+          if (autoRetryTimerRef.current !== null) return;
+
           let maxRetries = 3;
           try {
             const dbEngine = await loadFromThunderDB<any>('download_engine', null);
@@ -306,13 +340,36 @@ export const RealTimeDownloadProgress: React.FC = () => {
             setStatus('Downloading');
             statusRef.current = 'Downloading';
             setErrorMessage(`Reconnecting (attempt ${attempt}/${maxRetries})...`);
-            if (autoRetryTimerRef.current) clearTimeout(autoRetryTimerRef.current);
+            clearAutoRetryTimer();
             autoRetryTimerRef.current = setTimeout(async () => {
-              await handleRetryDownload();
-            }, 1500);
+              autoRetryTimerRef.current = null;
+              if (
+                isCanceledOrClosingRef.current ||
+                statusRef.current === 'Canceled' ||
+                statusRef.current === 'Paused'
+              ) {
+                return;
+              }
+              // Check if the main window already resumed the task before invoking resume_download
+              try {
+                const st = await invoke<any>('get_task_status', { id: tid });
+                if (
+                  st &&
+                  (st.status === 'Downloading' ||
+                    st.status === 'Pending' ||
+                    st.status === 'Paused' ||
+                    st.status === 'Canceled' ||
+                    st.status === 'Finished')
+                ) {
+                  return;
+                }
+              } catch {}
+              await handleRetryDownload(true);
+            }, 1650);
             return;
           }
 
+          clearAutoRetryTimer();
           setStatus('Error');
           statusRef.current = 'Error';
           setErrorMessage(p.error || `Download failed after ${maxRetries} retry attempts`);
@@ -323,7 +380,7 @@ export const RealTimeDownloadProgress: React.FC = () => {
     init();
 
     return () => {
-      if (autoRetryTimerRef.current) clearTimeout(autoRetryTimerRef.current);
+      clearAutoRetryTimer();
       if (unlistenProgress) unlistenProgress();
       if (unlistenOpen) unlistenOpen();
       if (unlistenError) unlistenError();
@@ -337,6 +394,8 @@ export const RealTimeDownloadProgress: React.FC = () => {
       const currentId = taskIdRef.current;
       if (
         currentId &&
+        !isCanceledOrClosingRef.current &&
+        autoRetryTimerRef.current === null &&
         statusRef.current !== 'Finished' &&
         statusRef.current !== 'Error' &&
         statusRef.current !== 'Canceled'
@@ -419,17 +478,16 @@ export const RealTimeDownloadProgress: React.FC = () => {
     }
   };
 
-  const handleRetryDownload = async () => {
+  const handleRetryDownload = async (isAutoRetry: boolean | any = false) => {
     const currentId = taskIdRef.current || taskId;
-    if (!currentId) return;
-    if (autoRetryTimerRef.current) {
-      clearTimeout(autoRetryTimerRef.current);
-      autoRetryTimerRef.current = null;
+    if (!currentId || isCanceledOrClosingRef.current) return;
+    clearAutoRetryTimer();
+    if (isAutoRetry !== true) {
+      retryAttemptsRef.current = 0;
+      setErrorMessage(null);
     }
-    retryAttemptsRef.current = 0;
     setStatus('Downloading');
     statusRef.current = 'Downloading';
-    setErrorMessage(null);
     setYtdlpInstallSuccess(false);
     setChunks((prev) =>
       prev.map((c) => (c.status === 'Error' ? { ...c, status: 'Pending' } : c))
@@ -452,13 +510,15 @@ export const RealTimeDownloadProgress: React.FC = () => {
 
   const handlePauseResume = async () => {
     const currentId = taskIdRef.current || taskId;
-    if (!currentId) return;
+    if (!currentId || isCanceledOrClosingRef.current) return;
     try {
       if (status === 'Error') {
-        await handleRetryDownload();
+        await handleRetryDownload(false);
         return;
       }
       if (isPaused) {
+        retryAttemptsRef.current = 0;
+        setErrorMessage(null);
         setStatus('Downloading');
         statusRef.current = 'Downloading';
         await invokeResumeDownload({
@@ -472,6 +532,9 @@ export const RealTimeDownloadProgress: React.FC = () => {
           isTorrent,
         });
       } else {
+        clearAutoRetryTimer();
+        retryAttemptsRef.current = 0;
+        setErrorMessage(null);
         setStatus('Paused');
         statusRef.current = 'Paused';
         await invoke('pause_download', { id: currentId });
@@ -480,13 +543,24 @@ export const RealTimeDownloadProgress: React.FC = () => {
   };
 
   const handleCancelDownload = async () => {
-    const currentId = taskIdRef.current || taskId;
+    isCanceledOrClosingRef.current = true;
+    clearAutoRetryTimer();
+    statusRef.current = 'Canceled';
+    const currentId = taskIdRef.current || taskId || getInitialTaskId();
     if (currentId) {
       try {
         await invoke('cancel_download', { id: currentId });
       } catch {}
+      try {
+        await invoke('remove_hidden_download_command', { id: currentId });
+      } catch {}
+      try {
+        await invoke('clear_realtime_progress_payload', { id: currentId });
+      } catch {}
     }
-    handleClose();
+    try {
+      Quit();
+    } catch {}
   };
 
   return (

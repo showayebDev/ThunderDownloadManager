@@ -36,6 +36,7 @@ interface UseDownloadActionsParams {
   appearanceRef: React.MutableRefObject<any>;
   startingTaskIdsRef: React.MutableRefObject<Set<string>>;
   taskRetryMapRef: React.MutableRefObject<Map<string, number>>;
+  retryTimersMapRef: React.MutableRefObject<Map<string, any>>;
   deletingIdsRef: React.MutableRefObject<Set<string>>;
   pendingProgressMapRef: React.MutableRefObject<Map<string, any>>;
   setActiveModal: React.Dispatch<React.SetStateAction<ActiveModalType>>;
@@ -61,6 +62,7 @@ export const useDownloadActions = ({
   appearanceRef,
   startingTaskIdsRef,
   taskRetryMapRef,
+  retryTimersMapRef,
   deletingIdsRef,
   pendingProgressMapRef,
   setActiveModal,
@@ -69,14 +71,45 @@ export const useDownloadActions = ({
   dispatchQueueWorkers,
   startQueue,
 }: UseDownloadActionsParams) => {
-  const resumeItem = async (id: string, force: boolean = false) => {
+  const clearTaskRetryTimer = (id: string) => {
+    const existingTimer = retryTimersMapRef.current.get(id);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      retryTimersMapRef.current.delete(id);
+    }
+  };
+
+  const resumeItem = async (
+    id: string,
+    force: boolean = false,
+    isAutoRetry: boolean = false
+  ) => {
+    if (deletingIdsRef.current.has(id)) return;
     const item =
       downloadsRef.current.find((d) => d.id === id) || downloads.find((d) => d.id === id);
     if (!item) return;
 
+    if (isAutoRetry) {
+      if (
+        item.status === 'Canceled' ||
+        item.status === 'Paused' ||
+        item.status === 'Finished'
+      ) {
+        return;
+      }
+    } else {
+      clearTaskRetryTimer(id);
+      taskRetryMapRef.current.delete(id);
+    }
+
     const updated = (downloadsRef.current || downloads).map((d) =>
       d.id === id
-        ? { ...d, status: 'Downloading' as DownloadStatus, speed: 0, timeLeft: 'Calculating...' }
+        ? {
+            ...d,
+            status: 'Downloading' as DownloadStatus,
+            speed: 0,
+            timeLeft: isAutoRetry ? d.timeLeft : 'Calculating...',
+          }
         : d
     );
     setDownloads(updated);
@@ -114,26 +147,28 @@ export const useDownloadActions = ({
         ? queueConfig?.showCompletionWindow ?? false
         : dbShowCompletion;
 
-      if (force || shouldShowProgressDialog) {
-        await invoke('remove_hidden_download_command', { id: item.id });
-        await invoke('open_realtime_progress_window_command', {
-          id: item.id,
-          taskId: item.id,
-          filename: item.name,
-          url: item.url,
-          savePath: item.savePath,
-          resumeSupport: item.resumeSupport,
-          resumable: item.resumeSupport === 'Yes',
-          force: true,
-          showRealTimeProgress: true,
-        });
-      } else {
-        const pct = item.size > 0 ? Math.floor((item.downloaded / item.size) * 100) : 0;
-        await invoke('hide_realtime_download_to_tray_command', {
-          id: item.id,
-          filename: item.name,
-          progress: pct,
-        });
+      if (!isAutoRetry) {
+        if (force || shouldShowProgressDialog) {
+          await invoke('remove_hidden_download_command', { id: item.id });
+          await invoke('open_realtime_progress_window_command', {
+            id: item.id,
+            taskId: item.id,
+            filename: item.name,
+            url: item.url,
+            savePath: item.savePath,
+            resumeSupport: item.resumeSupport,
+            resumable: item.resumeSupport === 'Yes',
+            force: true,
+            showRealTimeProgress: true,
+          });
+        } else {
+          const pct = item.size > 0 ? Math.floor((item.downloaded / item.size) * 100) : 0;
+          await invoke('hide_realtime_download_to_tray_command', {
+            id: item.id,
+            filename: item.name,
+            progress: pct,
+          });
+        }
       }
 
       await invoke('resume_download', {
@@ -682,20 +717,26 @@ export const useDownloadActions = ({
         (d.status === 'Downloading' ||
           d.status === 'Pending' ||
           d.status === 'Merging' ||
-          d.status === 'Queued')
+          d.status === 'Queued' ||
+          retryTimersMapRef.current.has(d.id))
       );
     });
     if (idsToPause.length === 0) return;
 
+    idsToPause.forEach((id) => {
+      clearTaskRetryTimer(id);
+      taskRetryMapRef.current.delete(id);
+    });
+
     const updated = currentList.map((d) => {
-      if (
-        idsToPause.includes(d.id) &&
-        (d.status === 'Downloading' ||
-          d.status === 'Pending' ||
-          d.status === 'Merging' ||
-          d.status === 'Queued')
-      ) {
-        return { ...d, status: 'Paused' as DownloadStatus, speed: 0, timeLeft: 'Paused' };
+      if (idsToPause.includes(d.id)) {
+        return {
+          ...d,
+          status: 'Paused' as DownloadStatus,
+          speed: 0,
+          timeLeft: 'Paused',
+          errorMessage: undefined,
+        };
       }
       return d;
     });
@@ -711,8 +752,18 @@ export const useDownloadActions = ({
   };
 
   const pauseItem = async (id: string) => {
+    clearTaskRetryTimer(id);
+    taskRetryMapRef.current.delete(id);
     const updated = (downloadsRef.current || downloads).map((d) =>
-      d.id === id ? { ...d, status: 'Paused' as DownloadStatus, speed: 0, timeLeft: 'Paused' } : d
+      d.id === id
+        ? {
+            ...d,
+            status: 'Paused' as DownloadStatus,
+            speed: 0,
+            timeLeft: 'Paused',
+            errorMessage: undefined,
+          }
+        : d
     );
     setDownloads(updated);
     downloadsRef.current = updated;
@@ -731,6 +782,7 @@ export const useDownloadActions = ({
     ids.forEach((id) => {
       deletingIdsRef.current.add(id);
       pendingProgressMapRef.current.delete(id);
+      clearTaskRetryTimer(id);
       taskRetryMapRef.current.delete(id);
     });
 
@@ -822,8 +874,11 @@ export const useDownloadActions = ({
   };
 
   const stopAll = async () => {
-    // Clear in-flight startup locks
+    // Clear in-flight startup locks and pending retry timers
     startingTaskIdsRef.current.clear();
+    retryTimersMapRef.current.forEach((timer) => clearTimeout(timer));
+    retryTimersMapRef.current.clear();
+    taskRetryMapRef.current.clear();
 
     // 1. Stop all running queues immediately
     const stoppedQueues = (queuesRef.current || queues).map((q) => ({ ...q, isRunning: false }));

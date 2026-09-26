@@ -104,6 +104,7 @@ func (tc *TaskController) emitCurrentProgress() {
 		Chunks:          chunkPayloads,
 		Resumable:       tc.State.Resumable,
 		ResumeSupport:   resumeSupportStr,
+		ErrorMessage:    tc.State.ErrorMessage,
 	}
 	tc.State.Mu.RUnlock()
 
@@ -133,7 +134,7 @@ func (tc *TaskController) progressEmitter() {
 			totalSize := tc.State.TotalSize
 			taskID := tc.State.ID
 
-			if status == core.StatusFinished || status == core.StatusError {
+			if status == core.StatusFinished || status == core.StatusError || status == core.StatusCanceled || status == core.StatusPaused {
 				tc.State.Mu.RUnlock()
 				return
 			}

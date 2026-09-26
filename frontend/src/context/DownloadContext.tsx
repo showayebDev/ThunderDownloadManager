@@ -56,11 +56,14 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   downloadsRef.current = downloads;
   const startingTaskIdsRef = React.useRef<Set<string>>(new Set());
   const taskRetryMapRef = React.useRef<Map<string, number>>(new Map());
+  const retryTimersMapRef = React.useRef<Map<string, any>>(new Map());
   const deletingIdsRef = React.useRef<Set<string>>(new Set());
   const pendingProgressMapRef = React.useRef<Map<string, any>>(new Map());
 
   // Ref for resumeItem so queue scheduler and error retry can invoke it without circular dependencies
-  const resumeItemRef = React.useRef<(id: string, force?: boolean) => Promise<void>>(async () => {});
+  const resumeItemRef = React.useRef<
+    (id: string, force?: boolean, isAutoRetry?: boolean) => Promise<void>
+  >(async () => {});
 
   // 1. Storage synchronization & disk file verification
   useDownloadStorageSync({
@@ -136,6 +139,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     appearanceRef,
     startingTaskIdsRef,
     taskRetryMapRef,
+    retryTimersMapRef,
     deletingIdsRef,
     pendingProgressMapRef,
     setActiveModal,
@@ -154,6 +158,7 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     globalSettingsRef,
     deletingIdsRef,
     taskRetryMapRef,
+    retryTimersMapRef,
     pendingProgressMapRef,
     setDetailDownloadId,
     dispatchQueueWorkers,

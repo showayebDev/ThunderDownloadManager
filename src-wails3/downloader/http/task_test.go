@@ -3,6 +3,8 @@ package httptask
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -377,3 +379,52 @@ func TestTaskController_ChunkAutoRetry(t *testing.T) {
 		t.Fatalf("Expected 0 after reset, got %d", tc.State.Chunks[0].GetRetryCount())
 	}
 }
+
+func TestPreCheck_PresignedURLHead403FallbackToGetRange(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "thunderdm_test_r2_presigned_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	const fakeFileSize = int64(2 * 1024 * 1024) // 2 MB
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate Cloudflare R2 / AWS S3 presigned GET URL rejecting HEAD with 403 Forbidden
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.Method == http.MethodGet && r.Header.Get("Range") == "bytes=0-0" {
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", fakeFileSize))
+			w.Header().Set("Content-Length", "1")
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write([]byte{0x00})
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	taskID := fmt.Sprintf("test-r2-presigned-%d", time.Now().UnixNano())
+	tc := NewTaskController(context.Background(), taskID, srv.URL+"/DontBeShy.mkv?X-Amz-Signature=123", tempDir, "DontBeShy.mkv", 4)
+	defer tc.CleanupCheckpoint()
+
+	if err := tc.preCheck(); err != nil {
+		t.Fatalf("Expected preCheck to succeed via GET Range fallback after HEAD 403, got error: %v", err)
+	}
+	if tc.targetFile != nil {
+		_ = tc.targetFile.Close()
+	}
+
+	if tc.State.TotalSize != fakeFileSize {
+		t.Fatalf("Expected TotalSize %d, got %d", fakeFileSize, tc.State.TotalSize)
+	}
+	if !tc.State.Resumable {
+		t.Fatalf("Expected Resumable to be true")
+	}
+	if len(tc.State.Chunks) != 4 {
+		t.Fatalf("Expected 4 chunks, got %d", len(tc.State.Chunks))
+	}
+}
+

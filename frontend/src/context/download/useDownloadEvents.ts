@@ -15,10 +15,13 @@ interface UseDownloadEventsParams {
   globalSettingsRef: React.MutableRefObject<GlobalSettings>;
   deletingIdsRef: React.MutableRefObject<Set<string>>;
   taskRetryMapRef: React.MutableRefObject<Map<string, number>>;
+  retryTimersMapRef: React.MutableRefObject<Map<string, any>>;
   pendingProgressMapRef: React.MutableRefObject<Map<string, any>>;
   setDetailDownloadId: React.Dispatch<React.SetStateAction<string | null>>;
   dispatchQueueWorkers: (targetQueueId?: string) => Promise<void>;
-  resumeItemRef: React.MutableRefObject<(id: string, force?: boolean) => Promise<void>>;
+  resumeItemRef: React.MutableRefObject<
+    (id: string, force?: boolean, isAutoRetry?: boolean) => Promise<void>
+  >;
 }
 
 export const useDownloadEvents = ({
@@ -27,6 +30,7 @@ export const useDownloadEvents = ({
   globalSettingsRef,
   deletingIdsRef,
   taskRetryMapRef,
+  retryTimersMapRef,
   pendingProgressMapRef,
   setDetailDownloadId,
   dispatchQueueWorkers,
@@ -34,7 +38,26 @@ export const useDownloadEvents = ({
 }: UseDownloadEventsParams) => {
   const progressFlushTimerRef = React.useRef<any>(null);
 
+  const clearTaskRetryTimer = (id: string) => {
+    const existingTimer = retryTimersMapRef.current.get(id);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      retryTimersMapRef.current.delete(id);
+    }
+  };
+
   useEffect(() => {
+    const hash = window.location.hash || '';
+    if (
+      hash.includes('realtime-progress') ||
+      hash.includes('download-confirmation') ||
+      hash.includes('add-download') ||
+      hash.includes('download-completed') ||
+      hash.includes('delete-confirm')
+    ) {
+      return;
+    }
+
     let unlistenProgress: (() => void) | undefined;
     let unlistenCompleted: (() => void) | undefined;
     let unlistenAdded: (() => void) | undefined;
@@ -441,11 +464,24 @@ export const useDownloadEvents = ({
             return;
           }
 
+          const prevItem = downloadsRef.current.find((d) => d.id === taskId);
           if (
             payload.status === 'Finished' ||
-            (payload.status === 'Downloading' && payload.speed > 0)
+            payload.status === 'Canceled' ||
+            payload.status === 'Paused' ||
+            (payload.status === 'Downloading' && payload.speed > 0) ||
+            ((payload.status === 'Downloading' || payload.status === 'Pending') &&
+              prevItem &&
+              (prevItem.status === 'Error' ||
+                prevItem.status === 'Paused' ||
+                prevItem.status === 'Canceled'))
           ) {
+            clearTaskRetryTimer(taskId);
             taskRetryMapRef.current.delete(taskId);
+          }
+
+          if (payload.status === 'Error' && retryTimersMapRef.current.has(taskId)) {
+            return;
           }
 
           const isTerminal =
@@ -473,6 +509,22 @@ export const useDownloadEvents = ({
           const payload = event.payload || {};
           const taskId = payload.task_id || payload.id;
           if (!taskId || deletingIdsRef.current.has(taskId)) return;
+
+          const existingItem = downloadsRef.current.find((d) => d.id === taskId);
+          if (
+            existingItem &&
+            (existingItem.status === 'Canceled' ||
+              existingItem.status === 'Paused' ||
+              existingItem.status === 'Finished')
+          ) {
+            clearTaskRetryTimer(taskId);
+            return;
+          }
+
+          // If a retry countdown timer is already pending for this task, ignore duplicate error events
+          if (retryTimersMapRef.current.has(taskId)) {
+            return;
+          }
 
           let maxRetries = 3;
           try {
@@ -508,13 +560,26 @@ export const useDownloadEvents = ({
               return next;
             });
 
-            setTimeout(() => {
-              resumeItemRef.current(taskId, false).catch(() => {});
+            const timer = setTimeout(() => {
+              retryTimersMapRef.current.delete(taskId);
+              const currentItem = downloadsRef.current.find((d) => d.id === taskId);
+              if (
+                !currentItem ||
+                deletingIdsRef.current.has(taskId) ||
+                currentItem.status === 'Canceled' ||
+                currentItem.status === 'Paused' ||
+                currentItem.status === 'Finished'
+              ) {
+                return;
+              }
+              resumeItemRef.current(taskId, false, true).catch(() => {});
             }, 1500);
+            retryTimersMapRef.current.set(taskId, timer);
             return;
           }
 
-          taskRetryMapRef.current.delete(taskId);
+          clearTaskRetryTimer(taskId);
+          taskRetryMapRef.current.set(taskId, maxRetries);
           setDownloads((prev) => {
             const next = prev.map((d) => {
               if (d.id === taskId) {
@@ -532,6 +597,7 @@ export const useDownloadEvents = ({
               return d;
             });
             downloadsRef.current = next;
+            saveToThunderDB('downloads', next);
             return next;
           });
           scheduleQueueDispatch();

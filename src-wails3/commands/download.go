@@ -279,6 +279,12 @@ func (c *DownloadCommand) Cancel(id string) error {
 		if statusStr, ok := st["status"].(string); ok && (statusStr == string(downloader.StatusFinished) || statusStr == "Completed") {
 			return nil
 		}
+	} else if c.app != nil && id != "" {
+		c.app.Event.Emit("download-progress", downloader.ProgressPayload{
+			ID:     id,
+			TaskID: id,
+			Status: downloader.StatusCanceled,
+		})
 	}
 
 	return downloader.GetEngine().Cancel(id)

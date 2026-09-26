@@ -147,6 +147,10 @@ func (tc *TaskController) OrchestratorLoop() {
 // failTaskAfterRetriesLocked transitions the task to StatusError and releases the container file.
 // Caller must hold tc.State.Mu lock; this method unlocks tc.State.Mu before returning.
 func (tc *TaskController) failTaskAfterRetriesLocked(maxRetries int) {
+	if tc.ctx.Err() != nil || tc.State.Status == core.StatusCanceled || tc.State.Status == core.StatusPaused {
+		tc.State.Mu.Unlock()
+		return
+	}
 	tc.State.Status = core.StatusError
 	if tc.State.ErrorMessage == "" {
 		tc.State.ErrorMessage = fmt.Sprintf("Download failed after %d retry attempts", maxRetries)

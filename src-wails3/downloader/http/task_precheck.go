@@ -31,6 +31,10 @@ func (tc *TaskController) preCheck() error {
 		}
 		if tc.State.UserAgent != "" {
 			r.Header.Set("User-Agent", tc.State.UserAgent)
+		} else if cfgUa := core.GetEngineConfig().UserAgent; cfgUa != "" {
+			r.Header.Set("User-Agent", cfgUa)
+		} else {
+			r.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
 		}
 		if tc.State.Referer != "" {
 			r.Header.Set("Referer", tc.State.Referer)
@@ -40,38 +44,7 @@ func (tc *TaskController) preCheck() error {
 		}
 	}
 
-	var resp *http.Response
-	var err error
-
-	cfg := core.GetEngineConfig()
-	maxRetries := cfg.MaxRetries
-	if maxRetries <= 0 {
-		maxRetries = 3
-	}
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			backoffMs := attempt * 1000
-			if backoffMs > 4000 {
-				backoffMs = 4000
-			}
-			select {
-			case <-ctxProbe.Done():
-				return ctxProbe.Err()
-			case <-time.After(time.Duration(backoffMs) * time.Millisecond):
-			}
-		}
-
-		resp, err = tc.probeServerAttempt(ctxProbe, applyHeaders)
-		if resp != nil && isFatalHTTPStatus(resp.StatusCode) {
-			drainAndCloseBody(resp)
-			return fmt.Errorf("HTTP %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))
-		}
-
-		if err == nil && resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
-			break
-		}
-	}
+	resp, err := tc.probeServerAttempt(ctxProbe, applyHeaders)
 	defer drainAndCloseBody(resp)
 
 	if err != nil && resp == nil {
@@ -81,7 +54,7 @@ func (tc *TaskController) preCheck() error {
 		return fmt.Errorf("server returned no response")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("server returned status: %s", resp.Status)
+		return fmt.Errorf("HTTP %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	// Capture Last-Modified timestamp from server response
@@ -163,8 +136,12 @@ func (tc *TaskController) preCheck() error {
 	return nil
 }
 
-// probeServerAttempt tries HEAD first, then falls back to GET with Range: bytes=0-0, and finally plain GET.
+// probeServerAttempt tries HEAD first, then falls back to GET with Range: bytes=0-0,
+// GET with Range: bytes=0-1024, and finally plain GET.
+// Note: Presigned S3 / Cloudflare R2 GET URLs return 403 Forbidden for HEAD requests
+// because the signature is bound to HTTP GET, so we must always fall back to GET on 4xx.
 func (tc *TaskController) probeServerAttempt(ctx context.Context, applyHeaders func(*http.Request)) (*http.Response, error) {
+	// Step 1: Try HEAD
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, tc.State.URL, nil)
 	if err != nil {
 		return nil, err
@@ -172,48 +149,51 @@ func (tc *TaskController) probeServerAttempt(ctx context.Context, applyHeaders f
 	applyHeaders(req)
 
 	resp, err := core.SharedHTTPClient.Do(req)
-	if resp != nil && isFatalHTTPStatus(resp.StatusCode) {
+	if err == nil && resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		return resp, nil
 	}
+	drainAndCloseBody(resp)
 
-	if err != nil || resp == nil || resp.StatusCode >= 400 {
-		drainAndCloseBody(resp)
-		// Fallback to GET with Range: bytes=0-0 to probe length and range support safely
-		req, err = http.NewRequestWithContext(ctx, http.MethodGet, tc.State.URL, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Range", "bytes=0-0")
-		applyHeaders(req)
-		resp, err = core.SharedHTTPClient.Do(req)
-		if resp != nil && isFatalHTTPStatus(resp.StatusCode) {
-			return resp, nil
-		}
-
-		if err != nil || resp == nil || resp.StatusCode >= 400 {
-			drainAndCloseBody(resp)
-			req, err = http.NewRequestWithContext(ctx, http.MethodGet, tc.State.URL, nil)
-			if err != nil {
-				return nil, err
-			}
-			applyHeaders(req)
-			resp, err = core.SharedHTTPClient.Do(req)
-		}
+	// Step 2: Fallback to GET with Range: bytes=0-0 (works with S3/R2 presigned GET URLs)
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, tc.State.URL, nil)
+	if err != nil {
+		return nil, err
 	}
+	req.Header.Set("Range", "bytes=0-0")
+	applyHeaders(req)
 
-	return resp, err
-}
+	resp, err = core.SharedHTTPClient.Do(req)
+	if err == nil && resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return resp, nil
+	}
+	drainAndCloseBody(resp)
 
-func isFatalHTTPStatus(code int) bool {
-	return code == http.StatusNotFound ||
-		code == http.StatusUnauthorized ||
-		code == http.StatusForbidden ||
-		code == http.StatusGone
+	// Step 3: Fallback to GET with Range: bytes=0-1024
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, tc.State.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Range", "bytes=0-1024")
+	applyHeaders(req)
+
+	resp, err = core.SharedHTTPClient.Do(req)
+	if err == nil && resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return resp, nil
+	}
+	drainAndCloseBody(resp)
+
+	// Step 4: Final fallback to plain GET
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, tc.State.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	applyHeaders(req)
+	return core.SharedHTTPClient.Do(req)
 }
 
 func drainAndCloseBody(resp *http.Response) {
 	if resp != nil && resp.Body != nil {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
 	}
 }

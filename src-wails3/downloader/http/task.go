@@ -170,11 +170,30 @@ func NewTaskController(wailsCtx context.Context, id, rawURL, savePath, filename 
 // Start runs the HTTP pre-check probe and launches the worker orchestrator and progress emitter.
 func (tc *TaskController) Start() {
 	if err := tc.preCheck(); err != nil {
+		if tc.ctx.Err() != nil {
+			return
+		}
+		tc.State.Mu.RLock()
+		st := tc.State.Status
+		tc.State.Mu.RUnlock()
+		if st == core.StatusCanceled || st == core.StatusPaused {
+			return
+		}
 		tc.changeStatusWithError(core.StatusError, err)
 		tc.emitCurrentProgress()
 		if application.Get() != nil {
 			application.Get().Event.Emit("download-error", map[string]interface{}{"task_id": tc.State.ID, "id": tc.State.ID, "error": err.Error()})
 		}
+		return
+	}
+
+	if tc.ctx.Err() != nil {
+		return
+	}
+	tc.State.Mu.RLock()
+	st := tc.State.Status
+	tc.State.Mu.RUnlock()
+	if st == core.StatusCanceled || st == core.StatusPaused {
 		return
 	}
 
@@ -189,7 +208,7 @@ func (tc *TaskController) Pause() error {
 	tc.State.Mu.RLock()
 	st := tc.State.Status
 	tc.State.Mu.RUnlock()
-	if st == core.StatusFinished || st == core.StatusError || st == core.StatusCanceled || st == core.StatusPaused {
+	if st == core.StatusFinished || st == core.StatusCanceled || st == core.StatusPaused {
 		return nil
 	}
 
