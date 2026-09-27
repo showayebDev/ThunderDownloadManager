@@ -1,5 +1,30 @@
 version: '3'
 
+vars:
+  PACKAGE_MANAGER:
+    sh: |
+      if [ -n "$PACKAGE_MANAGER" ]; then
+        echo "$PACKAGE_MANAGER"
+      elif bun --version >/dev/null 2>&1 && [ -f frontend/bun.lock -o -f frontend/bun.lockb -o -f ../frontend/bun.lock -o -f ../frontend/bun.lockb ]; then
+        echo "bun"
+      elif pnpm --version >/dev/null 2>&1 && [ -f frontend/pnpm-lock.yaml -o -f ../frontend/pnpm-lock.yaml ]; then
+        echo "pnpm"
+      elif yarn --version >/dev/null 2>&1 && [ -f frontend/yarn.lock -o -f ../frontend/yarn.lock ]; then
+        echo "yarn"
+      elif npm --version >/dev/null 2>&1 && [ -f frontend/package-lock.json -o -f ../frontend/package-lock.json ]; then
+        echo "npm"
+      elif bun --version >/dev/null 2>&1; then
+        echo "bun"
+      elif pnpm --version >/dev/null 2>&1; then
+        echo "pnpm"
+      elif npm --version >/dev/null 2>&1; then
+        echo "npm"
+      elif yarn --version >/dev/null 2>&1; then
+        echo "yarn"
+      else
+        echo "npm"
+      fi
+
 tasks:
   go:mod:tidy:
     summary: Runs `go mod tidy`

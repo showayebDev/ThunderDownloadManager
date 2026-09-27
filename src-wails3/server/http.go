@@ -18,6 +18,7 @@ type AddDownloadRequest struct {
 	Cookies   string            `json:"cookies,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
 	UserAgent string            `json:"user_agent,omitempty"`
+	IsTorrent bool              `json:"is_torrent,omitempty"`
 	IsYTDLP   bool              `json:"is_ytdlp,omitempty"`
 	Protocol  string            `json:"protocol,omitempty"`
 	Title     string            `json:"title,omitempty"`
@@ -69,7 +70,7 @@ func IsBrowserIntegrationEnabled() bool {
 func enableCors(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, *")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 	w.Header().Set("Access-Control-Max-Age", "86400")
 	w.Header().Set("Access-Control-Allow-Private-Network", "true")
 }
@@ -108,10 +109,12 @@ func handleAddDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proto := req.Protocol
 	lowerURL := strings.ToLower(req.URL)
+	isTorrent := req.IsTorrent || strings.HasPrefix(lowerURL, "magnet:") || strings.HasSuffix(lowerURL, ".torrent") || strings.Contains(lowerURL, ".torrent?")
+
+	proto := req.Protocol
 	if proto == "" {
-		if strings.HasPrefix(lowerURL, "magnet:") || strings.HasSuffix(lowerURL, ".torrent") || strings.Contains(lowerURL, ".torrent?") {
+		if isTorrent {
 			proto = "Torrent"
 		} else if req.IsYTDLP {
 			proto = "Yt-DLP"
@@ -125,6 +128,7 @@ func handleAddDownload(w http.ResponseWriter, r *http.Request) {
 		"cookies":    req.Cookies,
 		"headers":    req.Headers,
 		"user_agent": req.UserAgent,
+		"is_torrent": isTorrent,
 		"is_ytdlp":   req.IsYTDLP,
 		"protocol":   proto,
 		"title":      req.Title,
@@ -132,16 +136,16 @@ func handleAddDownload(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HTTPServer] Received add download request: %+v\n", payload)
 
-	if OnAddDownloadRequest != nil {
-		OnAddDownloadRequest(payload)
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "success",
 		"message": "Download confirmation window opened",
 	})
+
+	if OnAddDownloadRequest != nil {
+		go OnAddDownloadRequest(payload)
+	}
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {

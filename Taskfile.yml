@@ -3,7 +3,29 @@ version: '3'
 vars:
   APP_NAME: "ThunderDownloadManager"
   BIN_DIR: "bin"
-  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
+  PACKAGE_MANAGER:
+    sh: |
+      if [ -n "$PACKAGE_MANAGER" ]; then
+        echo "$PACKAGE_MANAGER"
+      elif bun --version >/dev/null 2>&1 && [ -f frontend/bun.lock -o -f frontend/bun.lockb ]; then
+        echo "bun"
+      elif pnpm --version >/dev/null 2>&1 && [ -f frontend/pnpm-lock.yaml ]; then
+        echo "pnpm"
+      elif yarn --version >/dev/null 2>&1 && [ -f frontend/yarn.lock ]; then
+        echo "yarn"
+      elif npm --version >/dev/null 2>&1 && [ -f frontend/package-lock.json ]; then
+        echo "npm"
+      elif bun --version >/dev/null 2>&1; then
+        echo "bun"
+      elif pnpm --version >/dev/null 2>&1; then
+        echo "pnpm"
+      elif npm --version >/dev/null 2>&1; then
+        echo "npm"
+      elif yarn --version >/dev/null 2>&1; then
+        echo "yarn"
+      else
+        echo "npm"
+      fi
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   # Target OS for build/package/run. Defaults to the host OS, and is overridden
   # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
@@ -22,7 +44,18 @@ tasks:
   ext:
     summary: "Builds universal browser extensions for Chrome, Firefox, and Edge (with .zip and .xpi packages)"
     cmds:
-      - node extension/build.js || bun extension/build.js || pnpm --prefix frontend build:extension || npm run --prefix frontend build:extension
+      - |
+        if [ "{{.PACKAGE_MANAGER}}" = "bun" ] || (bun --version >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1); then
+          bun extension/build.js
+        elif [ "{{.PACKAGE_MANAGER}}" = "pnpm" ]; then
+          pnpm --prefix frontend build:extension
+        elif command -v node >/dev/null 2>&1; then
+          node extension/build.js
+        elif command -v bun >/dev/null 2>&1; then
+          bun extension/build.js
+        else
+          npm run --prefix frontend build:extension
+        fi
 
   generate_icon:
     summary: "Generates high-resolution application icons, SVGs, and platform icon sets"

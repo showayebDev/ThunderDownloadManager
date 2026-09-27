@@ -286,6 +286,104 @@ async function probeHealth(port) {
   return { success: false, port: targetPort };
 }
 
+// Helper to extract domain cookies directly from popup when falling back to direct HTTP
+async function extractCookiesDirect(url) {
+  if (!currentConfig.passCookies || !url) return '';
+  if (!API || !API.cookies || typeof API.cookies.getAll !== 'function') return '';
+  try {
+    const cookies = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve([]), 1000);
+      const done = (items) => {
+        clearTimeout(timer);
+        resolve(Array.isArray(items) ? items : []);
+      };
+      try {
+        const maybePromise = API.cookies.getAll({ url }, (items) => {
+          if (API.runtime && API.runtime.lastError) {}
+          done(items);
+        });
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.then(done).catch(() => done([]));
+        }
+      } catch {
+        try {
+          const p = API.cookies.getAll({ url });
+          if (p && typeof p.then === 'function') {
+            p.then(done).catch(() => done([]));
+          } else {
+            done([]);
+          }
+        } catch {
+          done([]);
+        }
+      }
+    });
+    if (!Array.isArray(cookies) || cookies.length === 0) return '';
+    return cookies.filter((c) => c && c.name).map((c) => `${c.name}=${c.value || ''}`).join('; ');
+  } catch {
+    return '';
+  }
+}
+
+// Direct HTTP fallback to POST /add from popup if background service worker message fails
+async function sendDownloadDirect(payload, port) {
+  const targetPort = Number(port) || Number(currentServerPort) || 37555;
+  const candidatePorts = [targetPort, 57211, 9988, 37555].filter((v, i, a) => a.indexOf(v) === i);
+  const hosts = ['127.0.0.1', 'localhost'];
+
+  const enrichedPayload = {
+    ...payload,
+    user_agent: payload?.user_agent || navigator.userAgent
+  };
+
+  if (!enrichedPayload.cookies && currentConfig.passCookies && enrichedPayload.url) {
+    enrichedPayload.cookies = await extractCookiesDirect(enrichedPayload.url);
+  }
+
+  for (const p of candidatePorts) {
+    for (const host of hosts) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(`http://${host}:${p}/add`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(enrichedPayload),
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        clearTimeout(timeoutId);
+
+        if (res.status === 403) {
+          let errData = null;
+          try { errData = await res.json(); } catch {}
+          const msg = errData?.error || 'Browser integration is disabled in ThunderDM Settings.';
+          return { success: false, disabled: true, error: msg };
+        }
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.status === 'success') {
+            if (p !== targetPort) {
+              if (inputServerPort) inputServerPort.value = p;
+              currentServerPort = p;
+              broadcastConfig({ serverPort: p });
+            }
+            return { success: true, port: p, host, data };
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return {
+    success: false,
+    error: 'Thunder Download Manager is not running in background.'
+  };
+}
+
 // Test connection to desktop app
 if (btnTestConnection) {
   btnTestConnection.addEventListener('click', async () => {
@@ -518,7 +616,7 @@ if (btnThunderDM) {
   });
 }
 
-function triggerDownload(isYTDLP) {
+async function triggerDownload(isYTDLP) {
   const url = targetUrlInput ? targetUrlInput.value.trim() : '';
   if (!url) {
     showToast('Please enter a valid URL');
@@ -532,27 +630,57 @@ function triggerDownload(isYTDLP) {
 
   showToast('Opening in ThunderDM...');
 
+  const lowerUrl = url.toLowerCase();
+  const isTorrent = lowerUrl.startsWith('magnet:') || lowerUrl.endsWith('.torrent') || lowerUrl.includes('.torrent?');
+
   const payload = {
     url: url,
     title: pageTitleEl ? pageTitleEl.textContent || '' : '',
     referrer: currentTab?.url || '',
+    pageUrl: currentTab?.url || '',
+    tabId: currentTab?.id,
+    is_torrent: isTorrent,
     is_ytdlp: isYTDLP,
-    protocol: isYTDLP ? 'Yt-DLP' : 'Auto'
+    protocol: isTorrent ? 'Torrent' : (isYTDLP ? 'Yt-DLP' : 'Auto')
   };
 
-  API.runtime.sendMessage({ action: 'SEND_DOWNLOAD', payload }, (res) => {
-    if (API.runtime && API.runtime.lastError) {}
-    if (res && res.success) {
-      showToast('Opened in ThunderDM! ✓');
-      setTimeout(() => {
-        window.close();
-      }, 1000);
-    } else {
-      const errMsg = res?.error || 'Thunder Download Manager is not running in background.';
-      showToast(errMsg, 4000);
-      alert(errMsg + '\nPlease start Thunder Download Manager on your computer.');
+  let res = await new Promise((resolve) => {
+    try {
+      if (!API || !API.runtime || typeof API.runtime.sendMessage !== 'function') {
+        resolve(null);
+        return;
+      }
+      API.runtime.sendMessage({
+        action: 'SEND_DOWNLOAD',
+        tabId: currentTab?.id,
+        pageUrl: currentTab?.url || '',
+        payload
+      }, (response) => {
+        if (API.runtime && API.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        resolve(response || null);
+      });
+    } catch {
+      resolve(null);
     }
   });
+
+  if (!res || (!res.success && !res.disabled)) {
+    res = await sendDownloadDirect(payload, currentServerPort);
+  }
+
+  if (res && res.success) {
+    showToast('Opened in ThunderDM! ✓');
+    setTimeout(() => {
+      window.close();
+    }, 1000);
+  } else {
+    const errMsg = res?.error || 'Thunder Download Manager is not running in background.';
+    showToast(errMsg, 4000);
+    alert(errMsg + '\nPlease start Thunder Download Manager on your computer.');
+  }
 }
 
 // Active Browser Downloads -> Transfer to Thunder
@@ -687,7 +815,7 @@ function createDownloadItemElement(item) {
   return itemEl;
 }
 
-function transferBrowserDownloadToThunder(item, itemEl, btnEl) {
+async function transferBrowserDownloadToThunder(item, itemEl, btnEl) {
   if (!item || !item.id || transferringDownloadIds.has(item.id)) return;
 
   transferringDownloadIds.add(item.id);
@@ -698,30 +826,81 @@ function transferBrowserDownloadToThunder(item, itemEl, btnEl) {
   showToast('Transferring to ThunderDM...');
 
   try {
-    API.runtime.sendMessage({
-      action: 'TRANSFER_BROWSER_DOWNLOAD',
-      downloadId: item.id,
-      item: item
-    }, (res) => {
-      if (API.runtime && API.runtime.lastError) {}
-
-      if (res && res.success) {
-        showToast('⚡ Transferred to ThunderDM! ✓');
-        if (itemEl && itemEl.parentNode) {
-          itemEl.remove();
+    let res = await new Promise((resolve) => {
+      try {
+        if (!API || !API.runtime || typeof API.runtime.sendMessage !== 'function') {
+          resolve(null);
+          return;
         }
-        transferringDownloadIds.delete(item.id);
-        loadBrowserDownloads();
-      } else {
-        transferringDownloadIds.delete(item.id);
-        if (btnEl) {
-          btnEl.disabled = false;
-          btnEl.textContent = '⚡ Transfer to Thunder';
-        }
-        const errMsg = res?.error || 'Thunder Download Manager is not running in background.';
-        showToast(errMsg, 4000);
+        API.runtime.sendMessage({
+          action: 'TRANSFER_BROWSER_DOWNLOAD',
+          downloadId: item.id,
+          tabId: currentTab?.id,
+          item: item
+        }, (response) => {
+          if (API.runtime && API.runtime.lastError) {
+            resolve(null);
+            return;
+          }
+          resolve(response || null);
+        });
+      } catch {
+        resolve(null);
       }
     });
+
+    if (!res || (!res.success && !res.disabled)) {
+      const targetUrl = item.finalUrl || item.url || '';
+      if (targetUrl) {
+        const fname = (item.filename === 'Download_File' || item.filename === 'Unknown File') ? '' : (item.filename || '');
+        const lowerUrl = targetUrl.toLowerCase();
+        const fnLower = fname.toLowerCase();
+        const isTorrent = lowerUrl.startsWith('magnet:') || lowerUrl.endsWith('.torrent') || lowerUrl.includes('.torrent?') || fnLower.endsWith('.torrent');
+        const isVideo = !isTorrent && isVideoUrl(targetUrl);
+
+        res = await sendDownloadDirect({
+          url: targetUrl,
+          filename: fname,
+          referrer: item.referrer || currentTab?.url || '',
+          user_agent: navigator.userAgent,
+          is_torrent: isTorrent,
+          is_ytdlp: isVideo,
+          protocol: isTorrent ? 'Torrent' : (isVideo ? 'Yt-DLP' : 'Auto')
+        }, currentServerPort);
+
+        if (res && res.success && API.downloads) {
+          try {
+            if (typeof API.downloads.cancel === 'function') {
+              API.downloads.cancel(item.id, () => {
+                if (API.runtime && API.runtime.lastError) {}
+                if (typeof API.downloads.erase === 'function') {
+                  API.downloads.erase({ id: item.id }, () => {
+                    if (API.runtime && API.runtime.lastError) {}
+                  });
+                }
+              });
+            }
+          } catch {}
+        }
+      }
+    }
+
+    if (res && res.success) {
+      showToast('⚡ Transferred to ThunderDM! ✓');
+      if (itemEl && itemEl.parentNode) {
+        itemEl.remove();
+      }
+      transferringDownloadIds.delete(item.id);
+      loadBrowserDownloads();
+    } else {
+      transferringDownloadIds.delete(item.id);
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = '⚡ Transfer to Thunder';
+      }
+      const errMsg = res?.error || 'Thunder Download Manager is not running in background.';
+      showToast(errMsg, 4000);
+    }
   } catch {
     transferringDownloadIds.delete(item.id);
     if (btnEl) {

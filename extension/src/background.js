@@ -252,20 +252,26 @@ async function sendToThunderDM(payload, tabId) {
   for (const port of ports) {
     for (const host of hosts) {
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
         const res = await fetch(`http://${host}:${port}/add`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+          cache: 'no-store'
         });
+        clearTimeout(timeoutId);
+
         if (res.status === 403) {
           let errData = null;
           try { errData = await res.json(); } catch {}
           isThunderRunning = true;
           const msg = errData?.error || 'Browser integration is disabled in ThunderDM Settings.';
           showAppNotRunningAlert(tabId, msg, payload?.url, payload?.filename);
-          return { success: false, error: msg };
+          return { success: false, disabled: true, error: msg };
         }
         if (res.ok) {
           const data = await res.json();
@@ -274,7 +280,7 @@ async function sendToThunderDM(payload, tabId) {
             if (port !== customPort) {
               writeStoredConfig({ serverPort: port });
             }
-            return { success: true, data };
+            return { success: true, port, host, data };
           }
         }
       } catch (err) { }
@@ -491,25 +497,33 @@ async function getCookiesForUrl(url, tabId, pageUrl) {
   try {
     const cookieMap = new Map();
 
-    // 1. Server-side & HttpOnly cookies via browser API (supports both callback and Promise)
+    // 1. Server-side & HttpOnly cookies via browser API (supports both callback and Promise with 1200ms timeout)
     if (API && API.cookies && typeof API.cookies.getAll === 'function') {
       try {
         const cookies = await new Promise((resolve) => {
+          const timer = setTimeout(() => resolve([]), 1200);
+          const done = (items) => {
+            clearTimeout(timer);
+            resolve(Array.isArray(items) ? items : []);
+          };
           try {
-            API.cookies.getAll({ url }, (items) => {
+            const maybePromise = API.cookies.getAll({ url }, (items) => {
               consumeLastError();
-              resolve(Array.isArray(items) ? items : []);
+              done(items);
             });
+            if (maybePromise && typeof maybePromise.then === 'function') {
+              maybePromise.then(done).catch(() => done([]));
+            }
           } catch {
             try {
               const p = API.cookies.getAll({ url });
               if (p && typeof p.then === 'function') {
-                p.then((items) => resolve(Array.isArray(items) ? items : [])).catch(() => resolve([]));
+                p.then(done).catch(() => done([]));
               } else {
-                resolve([]);
+                done([]);
               }
             } catch {
-              resolve([]);
+              done([]);
             }
           }
         });
@@ -523,13 +537,16 @@ async function getCookiesForUrl(url, tabId, pageUrl) {
       } catch {}
     }
 
-    // 2. Client-side cookies from the target tab if accessible and domain matches
+    // 2. Client-side cookies from the target tab if accessible and domain matches (with 1200ms timeout)
     if (tabId && API.scripting && API.scripting.executeScript) {
       try {
-        const results = await API.scripting.executeScript({
-          target: { tabId: tabId },
-          func: () => document.cookie || ''
-        });
+        const results = await Promise.race([
+          API.scripting.executeScript({
+            target: { tabId: tabId },
+            func: () => document.cookie || ''
+          }),
+          new Promise((resolve) => setTimeout(() => resolve(null), 1200))
+        ]);
         if (results && results[0] && results[0].result) {
           const clientCookieStr = String(results[0].result);
           const pairs = clientCookieStr.split(';');
@@ -663,6 +680,7 @@ API.contextMenus.onClicked.addListener(async (info, tab) => {
   const isVideo = !isTorrent && (info.mediaType === 'video' || info.menuItemId === 'thunderdm-download-video' || isVideoSite(targetUrl) || Boolean(lastContextMedia?.isVideo));
   const isVideoStreamingSite = !isTorrent && isVideoSite(targetUrl);
 
+  await readStoredConfig();
   const pageUrl = tab?.url || info.pageUrl || '';
   const cookies = await getCookiesForUrl(targetUrl, tab?.id, pageUrl);
 
@@ -796,6 +814,7 @@ if (API.downloads && API.downloads.onCreated) {
 
     // Forward download details to app
     (async () => {
+      await readStoredConfig();
       const pageUrl = downloadItem.referrer || '';
       const cookies = await getCookiesForUrl(url, undefined, pageUrl);
       const filename = downloadItem.filename ? downloadItem.filename.split(/[/\\\\]/).pop() : '';
@@ -835,8 +854,10 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'SEND_DOWNLOAD') {
     (async () => {
+      await readStoredConfig();
       let cookies = '';
-      const pageUrl = sender?.tab?.url || request.payload?.referrer || '';
+      const targetTabId = sender?.tab?.id || request.tabId || request.payload?.tabId;
+      const pageUrl = sender?.tab?.url || request.pageUrl || request.payload?.pageUrl || request.payload?.referrer || '';
       const targetUrl = request.payload?.url || '';
 
       if (config.passCookies && targetUrl) {
@@ -844,7 +865,7 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
           if (request.payload.cookies) {
             cookies = request.payload.cookies;
           } else {
-            cookies = await getCookiesForUrl(targetUrl, sender?.tab?.id, pageUrl);
+            cookies = await getCookiesForUrl(targetUrl, targetTabId, pageUrl);
           }
         }
       }
@@ -854,7 +875,7 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
         cookies: cookies || '',
         user_agent: request.payload.user_agent || navigator.userAgent
       };
-      const result = await sendToThunderDM(payload, sender?.tab?.id);
+      const result = await sendToThunderDM(payload, targetTabId);
       sendResponse(result);
     })();
     return true;
@@ -892,6 +913,7 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'TEST_CONNECTION' || request.action === 'CHECK_CONNECTION') {
     (async () => {
+      await readStoredConfig();
       const targetPort = Number(request.port) || Number(config.serverPort) || 37555;
       const candidatePorts = [targetPort, ...THUNDER_DEFAULT_PORTS].filter((v, i, a) => a.indexOf(v) === i);
       const hosts = ['127.0.0.1', 'localhost'];
@@ -1048,8 +1070,10 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'TRANSFER_BROWSER_DOWNLOAD') {
     (async () => {
+      await readStoredConfig();
       const downloadId = Number(request.downloadId);
       const fallbackItem = request.item || {};
+      const targetTabId = sender?.tab?.id || request.tabId || fallbackItem?.tabId;
 
       let liveItem = null;
       if (downloadId && API.downloads && typeof API.downloads.search === 'function') {
@@ -1078,12 +1102,12 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const filename = (rawFilename === 'Download_File' || rawFilename === 'Unknown File') ? '' : rawFilename;
       const pageUrl = sourceItem?.referrer || fallbackItem?.referrer || '';
 
-      let cookies = await getCookiesForUrl(targetUrl, undefined, '');
+      let cookies = await getCookiesForUrl(targetUrl, targetTabId, '');
       if (!cookies && originalUrl && originalUrl !== targetUrl) {
-        cookies = await getCookiesForUrl(originalUrl, undefined, '');
+        cookies = await getCookiesForUrl(originalUrl, targetTabId, '');
       }
       if (!cookies && pageUrl && isSameDomainOrHost(pageUrl, originalUrl)) {
-        cookies = await getCookiesForUrl(pageUrl, undefined, '');
+        cookies = await getCookiesForUrl(pageUrl, targetTabId, '');
       }
 
       const lowerUrl = targetUrl.toLowerCase();
@@ -1102,7 +1126,7 @@ API.runtime.onMessage.addListener((request, sender, sendResponse) => {
         protocol: isTorrent ? 'Torrent' : (isVideo ? 'Yt-DLP' : 'Auto')
       };
 
-      const res = await sendToThunderDM(payload, sender?.tab?.id);
+      const res = await sendToThunderDM(payload, targetTabId);
       if (res && res.success && downloadId) {
         interceptedDownloadIds.add(downloadId);
         await new Promise((resolve) => {
