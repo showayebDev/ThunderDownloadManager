@@ -334,6 +334,19 @@ export const RealTimeDownloadProgress: React.FC = () => {
             }
           } catch {}
 
+          const isExhausted =
+            typeof p.error === 'string' &&
+            (p.error.includes('failed after') || p.error.includes('retry attempts'));
+
+          if (isExhausted) {
+            clearAutoRetryTimer();
+            retryAttemptsRef.current = maxRetries;
+            setStatus('Error');
+            statusRef.current = 'Error';
+            setErrorMessage(p.error);
+            return;
+          }
+
           if (retryAttemptsRef.current < maxRetries) {
             retryAttemptsRef.current += 1;
             const attempt = retryAttemptsRef.current;

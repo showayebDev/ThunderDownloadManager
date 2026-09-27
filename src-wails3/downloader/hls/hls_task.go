@@ -166,13 +166,69 @@ func NewHLSTaskController(wailsCtx context.Context, id, rawURL, savePath, filena
 	}
 }
 
-// Start probes the HLS playlist, restores cached segments, and launches download workers.
+// Start probes the HLS playlist with auto-retry, restores cached segments, and launches download workers.
 func (tc *HLSTaskController) Start() {
-	if err := tc.preCheck(); err != nil {
-		log.Printf("[HLSTaskController] preCheck failed: %v", err)
-		tc.changeStatusWithError(core.StatusError, err)
+	maxRetries := core.GetEngineConfig().MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	var preCheckErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		preCheckErr = tc.preCheck()
+		if preCheckErr == nil {
+			break
+		}
+		if tc.ctx.Err() != nil {
+			return
+		}
+		tc.State.Mu.RLock()
+		st := tc.State.Status
+		tc.State.Mu.RUnlock()
+		if st == core.StatusCanceled || st == core.StatusPaused {
+			return
+		}
+
+		if attempt < maxRetries {
+			log.Printf("[HLSTaskController] preCheck failed for task %s (attempt %d/%d): %v, retrying in 1.5s...", tc.State.ID, attempt, maxRetries, preCheckErr)
+			tc.State.Mu.Lock()
+			tc.State.Status = core.StatusDownloading
+			tc.State.ErrorMessage = fmt.Sprintf("Reconnecting (attempt %d/%d)...", attempt, maxRetries)
+			tc.State.Mu.Unlock()
+			if application.Get() != nil {
+				application.Get().Event.Emit("download-progress", core.ProgressPayload{
+					ID:           tc.State.ID,
+					TaskID:       tc.State.ID,
+					URL:          tc.State.URL,
+					Filename:     tc.State.Filename,
+					SavePath:     tc.State.SavePath,
+					Protocol:     "HLS",
+					IsHLS:        true,
+					Status:       core.StatusDownloading,
+					ErrorMessage: fmt.Sprintf("Reconnecting (attempt %d/%d)...", attempt, maxRetries),
+					TimeLeft:     fmt.Sprintf("Retrying (%d/%d)...", attempt, maxRetries),
+					RetryAttempt: attempt,
+					MaxRetries:   maxRetries,
+				})
+			}
+
+			select {
+			case <-tc.ctx.Done():
+				return
+			case <-time.After(1500 * time.Millisecond):
+			}
+		}
+	}
+
+	if preCheckErr != nil {
+		log.Printf("[HLSTaskController] preCheck failed after %d retries: %v", maxRetries, preCheckErr)
+		tc.changeStatusWithError(core.StatusError, preCheckErr)
 		if application.Get() != nil {
-			application.Get().Event.Emit("download-error", map[string]interface{}{"task_id": tc.State.ID, "error": err.Error()})
+			application.Get().Event.Emit("download-error", map[string]interface{}{
+				"task_id": tc.State.ID,
+				"id":      tc.State.ID,
+				"error":   fmt.Sprintf("HLS download failed after %d retry attempts: %v", maxRetries, preCheckErr),
+			})
 		}
 		return
 	}

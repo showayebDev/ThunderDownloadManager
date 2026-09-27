@@ -3,6 +3,7 @@
 package httptask
 
 import (
+	"strings"
 	"time"
 
 	"ThunderDM/src-wails3/downloader/core"
@@ -84,6 +85,11 @@ func (tc *TaskController) emitCurrentProgress() {
 		resumeSupportStr = "Yes"
 	}
 
+	timeLeftStr := ""
+	if status == core.StatusDownloading && strings.HasPrefix(tc.State.ErrorMessage, "Reconnecting") {
+		timeLeftStr = strings.Replace(tc.State.ErrorMessage, "Reconnecting", "Retrying", 1)
+	}
+
 	payload := core.ProgressPayload{
 		ID:              taskID,
 		TaskID:          taskID,
@@ -100,6 +106,7 @@ func (tc *TaskController) emitCurrentProgress() {
 		Speed:           tc.speedEMA,
 		SpeedLimit:      tc.getEffectiveSpeedLimitLocked(),
 		ETA:             0,
+		TimeLeft:        timeLeftStr,
 		ProxyUsed:       proxy.GetProxyManager().GetActiveProxyLabelForURL(tc.State.URL),
 		Chunks:          chunkPayloads,
 		Resumable:       tc.State.Resumable,
@@ -112,6 +119,14 @@ func (tc *TaskController) emitCurrentProgress() {
 		application.Get().Event.Emit("download-progress", payload)
 	}
 	core.EmitProgressUpdate(taskID, tc.State.Filename, totalDownloaded, totalSize)
+}
+
+// emitProgressPayload broadcasts an explicit progress payload to Wails frontend.
+func (tc *TaskController) emitProgressPayload(payload core.ProgressPayload) {
+	if application.Get() != nil {
+		application.Get().Event.Emit("download-progress", payload)
+	}
+	core.EmitProgressUpdate(payload.ID, payload.Filename, payload.Downloaded, payload.TotalSize)
 }
 
 // progressEmitter periodically computes smoothed download speed (EMA), flushes checkpoints,

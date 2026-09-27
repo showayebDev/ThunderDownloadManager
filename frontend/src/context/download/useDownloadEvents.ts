@@ -538,6 +538,34 @@ export const useDownloadEvents = ({
             maxRetries = Number(globalSettingsRef.current?.maxRetries) || 3;
           }
 
+          const isExhausted =
+            typeof payload.error === 'string' &&
+            (payload.error.includes('failed after') || payload.error.includes('retry attempts'));
+
+          if (isExhausted) {
+            clearTaskRetryTimer(taskId);
+            taskRetryMapRef.current.set(taskId, maxRetries);
+            setDownloads((prev) => {
+              const next = prev.map((d) => {
+                if (d.id === taskId) {
+                  return {
+                    ...d,
+                    status: 'Error' as DownloadStatus,
+                    speed: 0,
+                    timeLeft: 'Error',
+                    errorMessage: payload.error || d.errorMessage,
+                  };
+                }
+                return d;
+              });
+              downloadsRef.current = next;
+              saveToThunderDB('downloads', next);
+              return next;
+            });
+            scheduleQueueDispatch();
+            return;
+          }
+
           const currentAttempts = taskRetryMapRef.current.get(taskId) || 0;
           if (currentAttempts < maxRetries) {
             const nextAttempt = currentAttempts + 1;

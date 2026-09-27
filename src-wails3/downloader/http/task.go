@@ -4,10 +4,13 @@ package httptask
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"ThunderDM/src-wails3/downloader/core"
 	"ThunderDM/src-wails3/downloader/limiter"
@@ -171,9 +174,19 @@ func NewTaskController(wailsCtx context.Context, id, rawURL, savePath, filename 
 	}
 }
 
-// Start runs the HTTP pre-check probe and launches the worker orchestrator and progress emitter.
+// Start runs the HTTP pre-check probe with auto-retry and launches the worker orchestrator and progress emitter.
 func (tc *TaskController) Start() {
-	if err := tc.preCheck(); err != nil {
+	maxRetries := core.GetEngineConfig().MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	var preCheckErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		preCheckErr = tc.preCheck()
+		if preCheckErr == nil {
+			break
+		}
 		if tc.ctx.Err() != nil {
 			return
 		}
@@ -183,10 +196,44 @@ func (tc *TaskController) Start() {
 		if st == core.StatusCanceled || st == core.StatusPaused {
 			return
 		}
-		tc.changeStatusWithError(core.StatusError, err)
+
+		if attempt < maxRetries {
+			log.Printf("[TaskController] Pre-check connection failed for task %s (attempt %d/%d): %v, retrying in 1.5s...", tc.State.ID, attempt, maxRetries, preCheckErr)
+			tc.State.Mu.Lock()
+			tc.State.Status = core.StatusDownloading
+			tc.State.ErrorMessage = fmt.Sprintf("Reconnecting (attempt %d/%d)...", attempt, maxRetries)
+			tc.State.Mu.Unlock()
+			tc.emitProgressPayload(core.ProgressPayload{
+				ID:           tc.State.ID,
+				TaskID:       tc.State.ID,
+				URL:          tc.State.URL,
+				Filename:     tc.State.Filename,
+				SavePath:     tc.State.SavePath,
+				Protocol:     tc.State.Protocol,
+				Status:       core.StatusDownloading,
+				ErrorMessage: fmt.Sprintf("Reconnecting (attempt %d/%d)...", attempt, maxRetries),
+				TimeLeft:     fmt.Sprintf("Retrying (%d/%d)...", attempt, maxRetries),
+				RetryAttempt: attempt,
+				MaxRetries:   maxRetries,
+			})
+
+			select {
+			case <-tc.ctx.Done():
+				return
+			case <-time.After(1500 * time.Millisecond):
+			}
+		}
+	}
+
+	if preCheckErr != nil {
+		tc.changeStatusWithError(core.StatusError, preCheckErr)
 		tc.emitCurrentProgress()
 		if application.Get() != nil {
-			application.Get().Event.Emit("download-error", map[string]interface{}{"task_id": tc.State.ID, "id": tc.State.ID, "error": err.Error()})
+			application.Get().Event.Emit("download-error", map[string]interface{}{
+				"task_id": tc.State.ID,
+				"id":      tc.State.ID,
+				"error":   fmt.Sprintf("Download failed after %d retry attempts: %v", maxRetries, preCheckErr),
+			})
 		}
 		return
 	}

@@ -189,6 +189,7 @@ type ProgressPayload struct {
 	GivenCheckSum    string         `json:"given_checksum,omitempty"`
 	ExpectedChecksum string         `json:"expected_checksum,omitempty"`
 	ETA              float64        `json:"eta"` // Seconds
+	TimeLeft         string         `json:"time_left,omitempty"`
 	Protocol         string         `json:"protocol,omitempty"`
 	IsYTDLP          bool           `json:"is_ytdlp,omitempty"`
 	IsTorrent        bool           `json:"is_torrent,omitempty"`
