@@ -132,6 +132,7 @@ type TaskState struct {
 	Referer           string
 	Cookies           string
 	ForceCookie       bool
+	Queue             string
 	Status            DownloadStatus
 	ErrorMessage      string
 	RetryCount        int
@@ -215,6 +216,7 @@ type ActiveTaskInfo struct {
 	Filename string
 	Progress int
 	Status   DownloadStatus
+	Queue    string
 }
 
 var LatestDownloadCompletedPayload map[string]interface{}

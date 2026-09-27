@@ -54,7 +54,7 @@ func NewHLSTaskController(wailsCtx context.Context, id, rawURL, savePath, filena
 
 	var spLimit *int64
 	var limitBytes int64
-	var authUser, authPass, userAgent, referer, cookies string
+	var authUser, authPass, userAgent, referer, cookies, queueStr string
 	var forceCookie bool
 	showCompletion := true
 
@@ -86,6 +86,9 @@ func NewHLSTaskController(wailsCtx context.Context, id, rawURL, savePath, filena
 			}
 			if v.Cookies != "" {
 				cookies = v.Cookies
+			}
+			if v.Queue != "" {
+				queueStr = v.Queue
 			}
 			if v.ForceCookie {
 				forceCookie = true
@@ -153,6 +156,7 @@ func NewHLSTaskController(wailsCtx context.Context, id, rawURL, savePath, filena
 			Referer:        referer,
 			Cookies:        cookies,
 			ForceCookie:    forceCookie,
+			Queue:          queueStr,
 			Status:         core.StatusPending,
 			IsHLS:          true,
 			Protocol:       "HLS",
@@ -594,6 +598,7 @@ func (tc *HLSTaskController) GetState() map[string]interface{} {
 		"resume_support":     "Yes",
 		"accept_ranges":      true,
 		"proxy_used":         proxy.GetProxyManager().GetActiveProxyLabelForURL(tc.State.URL),
+		"queue":              tc.State.Queue,
 	}
 }
 

@@ -476,5 +476,6 @@ func (c *TorrentTaskController) GetState() map[string]interface{} {
 		"resumable":      true,
 		"error_message":  c.errorMessage,
 		"chunks":         c.chunks,
+		"queue":          c.options.Queue,
 	}
 }

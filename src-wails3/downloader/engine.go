@@ -4,12 +4,15 @@ package downloader
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"ThunderDM/src-wails3/downloader/limiter"
+	"ThunderDM/src-wails3/storage"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -116,6 +119,12 @@ func (e *Engine) AddDownloadWithLimit(id, url, savePath, filename string, thread
 	isTorrent := isTorrentProtocol(proto, cleanURL)
 	isYTDLP := !isTorrent && isYTDLPProtocol(proto, cleanURL)
 	isHLS := !isTorrent && !isYTDLP && (strings.EqualFold(proto, "HLS") || IsHLSURL(cleanURL))
+
+	isForce := strings.Contains(strings.ToLower(rawProto), "force=true") || strings.Contains(strings.ToLower(rawProto), "force")
+	if !isForce && e.ShouldQueueDownload(parsedOpts.Queue) {
+		log.Printf("[DownloadEngine] Concurrency limit reached for queue '%s', task %s not started (queued)", parsedOpts.Queue, id)
+		return fmt.Errorf("concurrency limit reached for queue '%s', task %s must be queued", parsedOpts.Queue, id)
+	}
 
 	var taskRunner TaskRunner
 	switch {
@@ -306,14 +315,115 @@ func (e *Engine) GetActiveTasksInfo() []ActiveTaskInfo {
 					pct = 100
 				}
 			}
+			qStr, _ := st["queue"].(string)
 			results = append(results, ActiveTaskInfo{
 				ID:       id,
 				Filename: fn,
 				Progress: pct,
 				Status:   status,
+				Queue:    qStr,
 			})
 		}
 		return true
 	})
 	return results
+}
+
+// GetActiveGeneralTaskCount returns the number of active general (unassigned queue) downloads.
+func (e *Engine) GetActiveGeneralTaskCount() int {
+	if e == nil {
+		return 0
+	}
+	count := 0
+	e.tasks.Range(func(key, val any) bool {
+		taskRunner, ok := val.(TaskRunner)
+		if !ok || taskRunner == nil {
+			return true
+		}
+		st := taskRunner.GetState()
+		if st == nil {
+			return true
+		}
+		status, _ := st["status"].(DownloadStatus)
+		if status != StatusDownloading && status != StatusPending && status != StatusMerging {
+			if statusStr, ok := st["status"].(string); ok {
+				status = DownloadStatus(statusStr)
+			}
+		}
+		if status == StatusDownloading || status == StatusPending || status == StatusMerging {
+			q, _ := st["queue"].(string)
+			if strings.TrimSpace(q) == "" {
+				count++
+			}
+		}
+		return true
+	})
+	return count
+}
+
+// GetActiveQueueTaskCount returns the number of active downloads belonging to the specified queue.
+func (e *Engine) GetActiveQueueTaskCount(queueName string) int {
+	if e == nil || strings.TrimSpace(queueName) == "" {
+		return 0
+	}
+	target := strings.ToLower(strings.TrimSpace(queueName))
+	count := 0
+	e.tasks.Range(func(key, val any) bool {
+		taskRunner, ok := val.(TaskRunner)
+		if !ok || taskRunner == nil {
+			return true
+		}
+		st := taskRunner.GetState()
+		if st == nil {
+			return true
+		}
+		status, _ := st["status"].(DownloadStatus)
+		if status != StatusDownloading && status != StatusPending && status != StatusMerging {
+			if statusStr, ok := st["status"].(string); ok {
+				status = DownloadStatus(statusStr)
+			}
+		}
+		if status == StatusDownloading || status == StatusPending || status == StatusMerging {
+			q, _ := st["queue"].(string)
+			if strings.ToLower(strings.TrimSpace(q)) == target {
+				count++
+			}
+		}
+		return true
+	})
+	return count
+}
+
+// ShouldQueueDownload evaluates whether a new download for the given queue should be queued
+// according to the engine's MaxConcurrentDownloads or the queue's maxConcurrent setting.
+func (e *Engine) ShouldQueueDownload(queue string) bool {
+	cleanQueue := strings.TrimSpace(queue)
+	if cleanQueue == "" {
+		cfg := GetEngineConfig()
+		if cfg.MaxConcurrentDownloads <= 0 || cfg.MaxConcurrentDownloads >= 999 {
+			return false // Unlimited
+		}
+		return e.GetActiveGeneralTaskCount() >= cfg.MaxConcurrentDownloads
+	}
+
+	// For specific queues:
+	queuesJSON, err := storage.GetQueuesJSON()
+	if err == nil && queuesJSON != "" {
+		var qList []storage.DBQueueItem
+		if err := json.Unmarshal([]byte(queuesJSON), &qList); err == nil {
+			for _, q := range qList {
+				if strings.EqualFold(q.Name, cleanQueue) || strings.EqualFold(q.ID, cleanQueue) {
+					if !q.IsRunning {
+						return true
+					}
+					maxQ := q.MaxConcurrent
+					if maxQ <= 0 {
+						maxQ = 1
+					}
+					return e.GetActiveQueueTaskCount(cleanQueue) >= maxQ
+				}
+			}
+		}
+	}
+	return false
 }

@@ -590,6 +590,16 @@ export const evaluateQueueShouldWait = async (
     return activeInQueue >= queueMax;
   }
 
+  // General unassigned download: query live backend engine first
+  try {
+    const backendShouldQueue = await invoke<boolean>('should_queue_download_command', { queue: '' });
+    if (typeof backendShouldQueue === 'boolean') {
+      return backendShouldQueue;
+    }
+  } catch (err) {
+    console.warn('[Confirmation] Failed to check backend queue status, falling back to local evaluation:', err);
+  }
+
   let maxAllowed = Infinity;
   let isUnlimited = true;
   try {
@@ -966,7 +976,7 @@ export const executeDownloadNowTask = async (ctx: TaskSubmissionContext): Promis
   } catch {}
 
   try {
-    await saveToThunderDB('downloads', [taskItem, ...baseList.filter((d: any) => d.id !== taskId)]);
+    await saveToThunderDB('downloads', [taskItem, ...baseList.filter((d: any) => d.id !== taskId)], true);
   } catch (err) {
     console.error('Failed to save download to json:', err);
   }
@@ -1155,7 +1165,7 @@ export const executeAddOnlyTask = async (
   try {
     const existingDownloadsJson = await loadFromThunderDB<any[]>('downloads', []);
     const baseList = Array.isArray(existingDownloadsJson) ? existingDownloadsJson : [];
-    await saveToThunderDB('downloads', [taskItem, ...baseList.filter((d: any) => d.id !== taskId)]);
+    await saveToThunderDB('downloads', [taskItem, ...baseList.filter((d: any) => d.id !== taskId)], true);
   } catch (err) {
     console.error('Failed to save download to json:', err);
   }

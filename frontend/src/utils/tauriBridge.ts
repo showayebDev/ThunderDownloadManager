@@ -238,6 +238,10 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         } else if (showComp === true) {
           proto = `${proto || 'Auto'}::show_completion=true`;
         }
+        const force = args?.force === true;
+        if (force) {
+          proto = `${proto || 'Auto'}::force=true`;
+        }
         return (await DownloadCommand.Start(args?.id || '', args?.url || '', args?.save_path || args?.savePath || '', args?.filename || '', args?.thread_count ?? args?.threadCount ?? 0, args?.speed_limit ?? args?.speedLimit ?? null, proto)) as T;
       }
       case 'pause_download': {
@@ -286,6 +290,10 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
         } else if (showComp === true) {
           proto = `${proto || 'Auto'}::show_completion=true`;
         }
+        const force = args?.force === true;
+        if (force) {
+          proto = `${proto || 'Auto'}::force=true`;
+        }
         return (await DownloadCommand.Resume(args?.id || '', args?.url || '', args?.save_path || args?.savePath || '', args?.filename || '', args?.thread_count ?? args?.threadCount ?? 0, args?.speed_limit ?? args?.speedLimit ?? null, proto)) as T;
       }
       case 'cancel_download': {
@@ -327,6 +335,31 @@ export async function invoke<T = any>(cmd: string, args?: any): Promise<T> {
           return (await (Call as any).ByName('ThunderDM/src-wails3/commands.DownloadCommand.GetDefaultEngineConfig')) as T;
         } catch {}
         return (await (Call as any).ByName('main.DownloadCommand.GetDefaultEngineConfig')) as T;
+      }
+      case 'should_queue_download_command':
+      case 'should_queue_download': {
+        const q = typeof args === 'string' ? args : (args?.queue ?? '');
+        try {
+          if (typeof (DownloadCommand as any).ShouldQueueDownloadCommand === 'function') {
+            return (await (DownloadCommand as any).ShouldQueueDownloadCommand(q)) as T;
+          }
+        } catch {}
+        try {
+          return (await (Call as any).ByName('ThunderDM/src-wails3/commands.DownloadCommand.ShouldQueueDownloadCommand', q)) as T;
+        } catch {}
+        return (await (Call as any).ByName('main.DownloadCommand.ShouldQueueDownloadCommand', q)) as T;
+      }
+      case 'get_active_download_counts_command':
+      case 'get_active_download_counts': {
+        try {
+          if (typeof (DownloadCommand as any).GetActiveDownloadCountsCommand === 'function') {
+            return (await (DownloadCommand as any).GetActiveDownloadCountsCommand()) as T;
+          }
+        } catch {}
+        try {
+          return (await (Call as any).ByName('ThunderDM/src-wails3/commands.DownloadCommand.GetActiveDownloadCountsCommand')) as T;
+        } catch {}
+        return (await (Call as any).ByName('main.DownloadCommand.GetActiveDownloadCountsCommand')) as T;
       }
       case 'process_new_download':
         return (await DownloadCommand.ProcessNewDownload(args?.url || args || '')) as T;

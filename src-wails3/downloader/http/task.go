@@ -38,7 +38,7 @@ func NewTaskController(wailsCtx context.Context, id, rawURL, savePath, filename 
 	var spLimit *int64
 	var limitBytes int64
 	var checksumStr string
-	var authUser, authPass, userAgent, referer, cookies string
+	var authUser, authPass, userAgent, referer, cookies, queueStr string
 	var forceCookie bool
 	showCompletion := true
 	protoStr := "Auto"
@@ -77,6 +77,9 @@ func NewTaskController(wailsCtx context.Context, id, rawURL, savePath, filename 
 			}
 			if v.Cookies != "" {
 				cookies = v.Cookies
+			}
+			if v.Queue != "" {
+				queueStr = v.Queue
 			}
 			if v.ForceCookie {
 				forceCookie = true
@@ -159,6 +162,7 @@ func NewTaskController(wailsCtx context.Context, id, rawURL, savePath, filename 
 			Referer:          referer,
 			Cookies:          cookies,
 			ForceCookie:      forceCookie,
+			Queue:            queueStr,
 			Status:           core.StatusPending,
 			ShowCompletion:   showCompletion,
 			Protocol:         protoStr,
@@ -376,6 +380,7 @@ func (tc *TaskController) GetState() map[string]interface{} {
 		"resume_support":    resumeSupportStr,
 		"accept_ranges":     tc.State.Resumable,
 		"proxy_used":        proxy.GetProxyManager().GetActiveProxyLabelForURL(tc.State.URL),
+		"queue":             tc.State.Queue,
 	}
 }
 

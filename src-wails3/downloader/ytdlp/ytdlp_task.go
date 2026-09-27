@@ -62,7 +62,7 @@ func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, file
 	}
 
 	var initDL, initTot int64
-	var userAgent, referer, cookies string
+	var userAgent, referer, cookies, queueStr string
 	var forceCookie bool
 	showCompletion := true
 
@@ -98,6 +98,9 @@ func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, file
 			if v.Cookies != "" {
 				cookies = v.Cookies
 			}
+			if v.Queue != "" {
+				queueStr = v.Queue
+			}
 			if v.ForceCookie {
 				forceCookie = true
 			}
@@ -126,6 +129,7 @@ func NewYTDLPTaskController(wailsCtx context.Context, id, rawURL, savePath, file
 			Referer:        referer,
 			Cookies:        cookies,
 			ForceCookie:    forceCookie,
+			Queue:          queueStr,
 			ShowCompletion: showCompletion,
 		},
 	}
@@ -631,5 +635,6 @@ func (t *YTDLPTaskController) GetState() map[string]interface{} {
 		"error_message":    t.State.ErrorMessage,
 		"error":            t.State.ErrorMessage,
 		"chunks":           []core.ChunkPayload{},
+		"queue":            t.State.Queue,
 	}
 }

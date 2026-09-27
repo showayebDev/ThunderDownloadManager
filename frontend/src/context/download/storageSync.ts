@@ -98,8 +98,21 @@ export const useDownloadStorageSync = ({
     loadStorageData();
   }, []);
 
-  // Pause active downloads before window closes
+  const isSecondaryPopupWindow = () => {
+    const hash = window.location.hash || '';
+    return (
+      hash.includes('realtime-progress') ||
+      hash.includes('download-confirmation') ||
+      hash.includes('add-download') ||
+      hash.includes('download-completed') ||
+      hash.includes('delete-confirm')
+    );
+  };
+
+  // Pause active downloads before window closes (Main window only)
   useEffect(() => {
+    if (isSecondaryPopupWindow()) return;
+
     const handleBeforeUnload = () => {
       try {
         const currentList = downloadsRef.current || downloads;
@@ -118,8 +131,10 @@ export const useDownloadStorageSync = ({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // Reliable periodic background flush to SQLite (every 2 seconds) so sudden exits or Ctrl+C never lose progress
+  // Reliable periodic background flush to SQLite (every 2 seconds) so sudden exits or Ctrl+C never lose progress (Main window only)
   useEffect(() => {
+    if (isSecondaryPopupWindow()) return;
+
     const interval = setInterval(() => {
       if (isLoaded.current && downloadsRef.current && downloadsRef.current.length > 0) {
         saveToThunderDB('downloads', downloadsRef.current);
@@ -129,19 +144,23 @@ export const useDownloadStorageSync = ({
   }, []);
 
   useEffect(() => {
+    if (isSecondaryPopupWindow()) return;
     if (isLoaded.current) {
       saveToThunderDB('queues', queues);
     }
   }, [queues]);
 
   useEffect(() => {
+    if (isSecondaryPopupWindow()) return;
     if (isLoaded.current) {
       saveToThunderDB('download_engine', globalSettings);
     }
   }, [globalSettings]);
 
-  // Poll filesystem to verify existence of downloaded files
+  // Poll filesystem to verify existence of downloaded files (Main window only)
   useEffect(() => {
+    if (isSecondaryPopupWindow()) return;
+
     if (!globalSettings.trackDeletedFiles) {
       // Clear missing flags when tracking is disabled
       setDownloads((prev) => {

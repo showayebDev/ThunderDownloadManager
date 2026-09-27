@@ -394,3 +394,13 @@ func (c *DownloadCommand) GetDefaultThreadCount() int {
 func (c *DownloadCommand) GetDefaultEngineConfig() downloader.EngineConfig {
 	return downloader.GetEngineConfig()
 }
+
+func (c *DownloadCommand) ShouldQueueDownloadCommand(queue string) bool {
+	return downloader.GetEngine().ShouldQueueDownload(queue)
+}
+
+func (c *DownloadCommand) GetActiveDownloadCountsCommand() map[string]int {
+	return map[string]int{
+		"general": downloader.GetEngine().GetActiveGeneralTaskCount(),
+	}
+}
