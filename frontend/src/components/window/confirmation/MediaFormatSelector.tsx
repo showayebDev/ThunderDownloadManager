@@ -3,11 +3,13 @@
  * and missing media tools notice for DownloadStartConfirmation.
  */
 
-import React from 'react';
-import { ChevronDown, Cookie, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronDown, Cookie, AlertTriangle, Loader2, CloudDownload, CheckCircle2 } from 'lucide-react';
 import { CookieBypassRule } from '../../../types/download';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { invoke } from '../../../utils/tauriBridge';
 import { YtdlpFormat } from './types';
 
 interface MediaFormatSelectorProps {
@@ -154,27 +156,84 @@ export const MediaFormatSelector: React.FC<MediaFormatSelectorProps> = ({
 interface MissingMediaToolsBannerProps {
   protocol: string;
   isYtdlpInstalled: boolean;
+  onInstallSuccess?: () => void;
 }
 
 export const MissingMediaToolsBanner: React.FC<MissingMediaToolsBannerProps> = ({
   protocol,
   isYtdlpInstalled,
+  onInstallSuccess,
 }) => {
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installSuccess, setInstallSuccess] = useState(false);
+
   if (protocol !== 'Yt-DLP' || isYtdlpInstalled) return null;
+
+  const handleInstallNow = async () => {
+    setIsInstalling(true);
+    setInstallError(null);
+    try {
+      const res: any = await invoke('install_ytdlp');
+      if (res?.success || res?.allInstalled || res?.alreadyInstalled) {
+        setInstallSuccess(true);
+        if (onInstallSuccess) onInstallSuccess();
+      } else {
+        setInstallError(res?.error || 'Installation failed. Please check internet connection.');
+      }
+    } catch (err: any) {
+      setInstallError(err?.message || 'Failed to install media tools.');
+    } finally {
+      setIsInstalling(false);
+    }
+  };
 
   return (
     <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-3 text-xs animate-in fade-in duration-200 min-w-0">
       <div className="p-2 bg-amber-500/20 rounded-xl text-amber-500 shrink-0 mt-0.5">
-        <AlertTriangle className="w-4 h-4" />
+        {installSuccess ? (
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+        ) : (
+          <AlertTriangle className="w-4 h-4" />
+        )}
       </div>
-      <div className="space-y-1 min-w-0 flex-1">
+      <div className="space-y-1.5 min-w-0 flex-1">
         <div className="text-amber-500 font-semibold text-[12px]">
           Media Tools (YT-DLP & FFmpeg) Required
         </div>
         <div className="text-muted-foreground text-[11px] leading-relaxed">
-          To download video & audio streams with YT-DLP, open the main window, click{' '}
-          <strong className="text-foreground">Tools</strong>, and select{' '}
-          <strong className="text-foreground">Install Media Tools</strong>.
+          YT-DLP and FFmpeg are required to parse and download video & audio streams.
+        </div>
+        {installError && (
+          <div className="text-destructive text-[11px] font-medium leading-tight">
+            {installError}
+          </div>
+        )}
+        <div className="pt-0.5">
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleInstallNow}
+            disabled={isInstalling}
+            className="h-7 px-3 text-[11px] font-semibold gap-1.5 bg-amber-500 hover:bg-amber-600 text-black shadow-xs cursor-pointer"
+          >
+            {isInstalling ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Downloading & Installing...</span>
+              </>
+            ) : installError ? (
+              <>
+                <CloudDownload className="w-3.5 h-3.5" />
+                <span>Retry Installation</span>
+              </>
+            ) : (
+              <>
+                <CloudDownload className="w-3.5 h-3.5" />
+                <span>Install Media Tools Now (1-Click)</span>
+              </>
+            )}
+          </Button>
         </div>
       </div>
     </div>

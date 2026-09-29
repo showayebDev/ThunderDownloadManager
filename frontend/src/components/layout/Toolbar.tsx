@@ -64,7 +64,7 @@ export const Toolbar: React.FC = () => {
   return (
     <div className="h-11 bg-card border-b border-border px-3 flex items-center justify-between select-none shrink-0 relative z-30 gap-2 text-xs">
       {/* Action buttons */}
-      <div className="flex items-center space-x-1.5 min-w-max">
+      <div className="flex items-center gap-2 min-w-max">
         {/* New download button */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -81,10 +81,10 @@ export const Toolbar: React.FC = () => {
           <TooltipContent side="bottom">Create and configure a new download task</TooltipContent>
         </Tooltip>
 
-        <Separator orientation="vertical" className="h-5 mx-1" />
+        <Separator orientation="vertical" className="h-5" />
 
         {/* Batch actions: resume, pause, delete */}
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center gap-1">
           {/* Resume */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -169,10 +169,10 @@ export const Toolbar: React.FC = () => {
           </Tooltip>
         </div>
 
-        <Separator orientation="vertical" className="h-5 mx-1" />
+        <Separator orientation="vertical" className="h-5" />
 
         {/* Queue controls */}
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center gap-1">
           {/* Start queue dropdown */}
           <DropdownMenu>
             <Tooltip>
@@ -248,9 +248,12 @@ export const Toolbar: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent side="bottom">Manage and configure download queues and schedules</TooltipContent>
           </Tooltip>
+        </div>
 
-          <Separator orientation="vertical" className="h-4 mx-1" />
+        <Separator orientation="vertical" className="h-5" />
 
+        {/* Global actions: Stop all, Settings */}
+        <div className="flex items-center gap-1">
           {/* Stop all */}
           <Tooltip>
             <TooltipTrigger asChild>

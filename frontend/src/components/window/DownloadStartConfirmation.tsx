@@ -941,7 +941,17 @@ export const DownloadStartConfirmation: React.FC = () => {
           </form>
 
           {/* Missing Media Tools Notice */}
-          <MissingMediaToolsBanner protocol={protocol} isYtdlpInstalled={isYtdlpInstalled} />
+          <MissingMediaToolsBanner
+            protocol={protocol}
+            isYtdlpInstalled={isYtdlpInstalled}
+            onInstallSuccess={async () => {
+              await checkYtdlpStatus(true);
+              setErrorMessage('');
+              if (url.trim()) {
+                handleRefreshInfo(url.trim(), {}, true);
+              }
+            }}
+          />
 
           {/* Error Message Display */}
           {errorMessage && url.trim() && !isFetchingInfo && (

@@ -309,16 +309,21 @@ export const DownloadTable: React.FC = () => {
               </TableHead>
 
               {(['name', 'size', 'status', 'speed', 'timeLeft', 'dateAdded'] as ColumnKey[]).map(
-                (colKey) => (
+                (colKey, idx, arr) => (
                   <TableHead
                     key={colKey}
                     className="relative px-3 text-left align-middle text-xs font-semibold text-muted-foreground group"
                   >
                     {renderHeader(colKey, t(`table.${colKey}`))}
-                    <div
-                      onMouseDown={(e) => handleMouseDown(e, colKey)}
-                      className="absolute right-0 top-1.5 bottom-1.5 w-1 cursor-col-resize rounded-full hover:bg-primary/60 transition-colors opacity-0 group-hover:opacity-100 z-30"
-                    />
+                    {idx < arr.length - 1 && (
+                      <div
+                        onMouseDown={(e) => handleMouseDown(e, colKey)}
+                        className="absolute right-0 top-0 bottom-0 w-2.5 -mr-1.5 flex items-center justify-center cursor-col-resize z-30 group/resizer"
+                        title="Drag to resize column"
+                      >
+                        <div className="w-0 h-3.5 border-l border-border group-hover/resizer:border-primary transition-colors" />
+                      </div>
+                    )}
                   </TableHead>
                 )
               )}
